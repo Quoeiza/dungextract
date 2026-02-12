@@ -132,16 +132,17 @@ class Game {
         );
         this.gameLoop.start();
 
-        const myPeerId = isHost ? this.generateRoomCode() : null;
+        // Namespace the ID to avoid collisions on public PeerJS server
+        const myPeerId = isHost ? `dungex-${this.generateRoomCode()}` : undefined;
         this.peerClient.init(myPeerId);
         this.peerClient.on('ready', (id) => {
             if (isHost) {
+                const displayId = id.replace('dungex-', ''); // Strip prefix for display
                 this.startHost(id);
-                document.getElementById('room-code-display').innerText = `Room: ${id}`;
+                document.getElementById('room-code-display').innerText = `Room: ${displayId}`;
             } else if (hostId) {
-                // Update UI to show the room we are trying to join
                 document.getElementById('room-code-display').innerText = `Room: ${hostId}`;
-                this.peerClient.connect(hostId, { name: this.playerData.name, class: this.playerData.class });
+                this.peerClient.connect(`dungex-${hostId}`, { name: this.playerData.name, class: this.playerData.class });
             }
         });
     }
@@ -508,6 +509,7 @@ class Game {
     setupNetwork() {
         this.peerClient.on('ready', (id) => {
             this.state.myId = id;
+            // Do NOT update room-code-display here, as it shows the internal UUID for clients
         });
 
         // Combat Events (Local & Networked)
@@ -611,11 +613,20 @@ class Game {
                     const loot = this.lootSystem.worldLoot.get(data.payload.lootId);
                     if (loot) this.processLootInteraction(sender, loot);
                 }
+                if (data.type === 'HELLO') {
+                    // Client is ready, send the world state
+                    console.log(`Client ${sender} said HELLO. Sending World.`);
+                    this.peerClient.sendTo(sender, {
+                        type: 'INIT_WORLD',
+                        payload: { grid: this.gridSystem.grid, torches: this.gridSystem.torches }
+                    });
+                }
             } else {
                 // Client Logic: Receive State
                 if (data.type === 'SNAPSHOT') {
                     this.syncManager.addSnapshot(data.payload);
                 } else if (data.type === 'INIT_WORLD') {
+                    console.log("Client: Received INIT_WORLD");
                     this.gridSystem.grid = data.payload.grid;
                     this.gridSystem.torches = data.payload.torches || [];
                     this.state.connected = true;
@@ -672,15 +683,13 @@ class Game {
         this.peerClient.on('connected', ({ peerId, metadata }) => {
             console.log(`Connected to ${peerId}`, metadata);
             if (this.state.isHost) {
-                // Send world data specifically to the new client
-                this.peerClient.sendTo(peerId, {
-                    type: 'INIT_WORLD',
-                    payload: { grid: this.gridSystem.grid, torches: this.gridSystem.torches }
-                });
                 // Spawn them
                 const spawn = this.gridSystem.getSpawnPoint();
                 this.gridSystem.addEntity(peerId, spawn.x, spawn.y);
                 this.combatSystem.registerEntity(peerId, 'player', true, metadata.class || 'Fighter', metadata.name || 'Unknown');
+            } else {
+                // Client: Send HELLO to trigger world download
+                this.peerClient.send({ type: 'HELLO' });
             }
         });
     }
