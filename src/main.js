@@ -917,7 +917,6 @@ class Game {
         }
         
         if (intent.type === 'PICKUP') {
-            const pos = this.gridSystem.entities.get(entityId);
             const stats = this.combatSystem.getStats(entityId);
             
             // Monster Restriction: Cannot pickup items
@@ -1387,7 +1386,21 @@ class Game {
         // If we are a client, we want to render our LOCAL position (which is predicted),
         // not the interpolated server position (which is in the past).
         if (!this.state.isHost && this.gridSystem.entities.has(this.state.myId)) {
-            state.entities.set(this.state.myId, this.gridSystem.entities.get(this.state.myId));
+            const localEntity = this.gridSystem.entities.get(this.state.myId);
+            const serverEntity = state.entities.get(this.state.myId);
+            
+            if (serverEntity) {
+                // Merge local position with server stats (HP, Type, etc)
+                // This ensures we see our own sprite/stats while moving smoothly
+                state.entities.set(this.state.myId, {
+                    ...serverEntity,
+                    x: localEntity.x,
+                    y: localEntity.y,
+                    facing: localEntity.facing
+                });
+            } else {
+                state.entities.set(this.state.myId, localEntity);
+            }
         }
 
         // Update Timer UI
