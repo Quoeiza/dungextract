@@ -810,7 +810,14 @@ class Game {
 
     processPlayerInput(entityId, intent) {
         // Host-side Cooldown Enforcement
-        const stats = this.combatSystem.getStats(entityId);
+        let stats = this.combatSystem.getStats(entityId);
+
+        // Client-Side Prediction Fix: Ensure local stats exist for cooldown tracking
+        if (!stats && entityId === this.state.myId && !this.state.isHost) {
+            this.combatSystem.registerEntity(entityId, 'player', true, this.playerData.class, this.playerData.name);
+            stats = this.combatSystem.getStats(entityId);
+        }
+
         let now = Date.now();
         let cooldown = this.config.global.globalCooldownMs || 250;
 
