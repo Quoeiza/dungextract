@@ -14,39 +14,62 @@ export default class GridSystem {
         this.grid = new Array(this.height).fill(0).map(() => new Array(this.width).fill(1));
         this.rooms = [];
         this.torches = [];
+        this.spawnRooms = []; // Special rooms for player spawns
 
         const rooms = [];
         this.spatialMap.clear();
-        const maxRooms = 10;
-        const minSize = 5;
-        const maxSize = 12;
+        
+        // 2. BSP Dungeon Generation
+        // We split the map recursively to create a dense layout
+        const bspTree = this.splitContainer({ x: 1, y: 1, w: this.width - 2, h: this.height - 2 }, 8); // Depth 8 for high density
+        
+        // Extract leaves (rooms)
+        const leaves = this.getLeaves(bspTree);
+        
+        leaves.forEach(leaf => {
+            // Create a room inside the leaf with some padding
+            const padding = 2;
+            const roomW = Math.max(4, Math.floor(Math.random() * (leaf.w - padding * 2)) + 4);
+            const roomH = Math.max(4, Math.floor(Math.random() * (leaf.h - padding * 2)) + 4);
+            
+            // Center the room in the leaf roughly
+            const roomX = leaf.x + Math.floor((leaf.w - roomW) / 2);
+            const roomY = leaf.y + Math.floor((leaf.h - roomH) / 2);
 
-        // 2. Place Rooms
-        for (let i = 0; i < maxRooms; i++) {
-            const w = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-            const h = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-            const x = Math.floor(Math.random() * (this.width - w - 2)) + 1;
-            const y = Math.floor(Math.random() * (this.height - h - 2)) + 1;
+            const newRoom = { 
+                x: roomX, 
+                y: roomY, 
+                w: roomW, 
+                h: roomH, 
+                cx: roomX + Math.floor(roomW/2), 
+                cy: roomY + Math.floor(roomH/2) 
+            };
 
-            const newRoom = { x, y, w, h, cx: x + Math.floor(w/2), cy: y + Math.floor(h/2) };
+            this.createRoom(newRoom);
+            this.rooms.push(newRoom);
+            
+            // Store reference in leaf for connection
+            leaf.room = newRoom;
+        });
 
-            // Check overlap (simple check)
-            const failed = rooms.some(r => 
-                x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y
-            );
+        // 3. Connect Rooms via BSP Tree
+        // Connect sibling nodes
+        this.connectBSPNodes(bspTree);
 
-            if (!failed) {
-                this.createRoom(newRoom);
-                
-                // 3. Connect to previous room
-                if (rooms.length > 0) {
-                    const prev = rooms[rooms.length - 1];
-                    this.createCorridor(prev.cx, prev.cy, newRoom.cx, newRoom.cy);
-                }
-                rooms.push(newRoom);
-                this.rooms.push(newRoom);
-            }
-        }
+        // 3.5 Identify Spawn Rooms (Outer Edges)
+        const centerX = this.width / 2;
+        const centerY = this.height / 2;
+        
+        // Sort rooms by distance from center (Descending)
+        const sortedRooms = [...this.rooms].sort((a, b) => {
+            const distA = Math.pow(a.cx - centerX, 2) + Math.pow(a.cy - centerY, 2);
+            const distB = Math.pow(b.cx - centerX, 2) + Math.pow(b.cy - centerY, 2);
+            return distB - distA;
+        });
+
+        // Designate the 8 furthest rooms as spawn points
+        this.spawnRooms = sortedRooms.slice(0, 8);
+        this.spawnRooms.forEach(r => r.isSpawn = true);
 
         // 4. Generate Environmental Features (Lakes)
         const features = [2, 3, 4]; // Water, Mud, Lava
@@ -83,6 +106,61 @@ export default class GridSystem {
                         this.torches.push({ x, y });
                     }
                 }
+            }
+        }
+    }
+
+    splitContainer(container, iter) {
+        const root = { ...container, left: null, right: null };
+        
+        if (iter <= 0 || (container.w < 12 && container.h < 12)) {
+            return root;
+        }
+
+        // Determine split direction (vertical or horizontal)
+        // Bias towards splitting the longer dimension
+        let splitH = Math.random() > 0.5;
+        if (container.w > container.h && container.w / container.h >= 1.1) splitH = false;
+        else if (container.h > container.w && container.h / container.w >= 1.1) splitH = true;
+
+        const max = (splitH ? container.h : container.w) - 8; // Min size 8
+        if (max <= 10) return root; // Too small to split
+
+        const splitAt = Math.floor(Math.random() * (max - 10)) + 10;
+
+        if (splitH) {
+            root.left = this.splitContainer({ x: container.x, y: container.y, w: container.w, h: splitAt }, iter - 1);
+            root.right = this.splitContainer({ x: container.x, y: container.y + splitAt, w: container.w, h: container.h - splitAt }, iter - 1);
+        } else {
+            root.left = this.splitContainer({ x: container.x, y: container.y, w: splitAt, h: container.h }, iter - 1);
+            root.right = this.splitContainer({ x: container.x + splitAt, y: container.y, w: container.w - splitAt, h: container.h }, iter - 1);
+        }
+
+        return root;
+    }
+
+    getLeaves(node) {
+        if (!node.left && !node.right) return [node];
+        let leaves = [];
+        if (node.left) leaves = leaves.concat(this.getLeaves(node.left));
+        if (node.right) leaves = leaves.concat(this.getLeaves(node.right));
+        return leaves;
+    }
+
+    connectBSPNodes(node) {
+        if (node.left && node.right) {
+            this.connectBSPNodes(node.left);
+            this.connectBSPNodes(node.right);
+
+            // Connect the two children
+            // Find a room in the left branch and a room in the right branch
+            const leftLeaves = this.getLeaves(node.left);
+            const rightLeaves = this.getLeaves(node.right);
+            const roomA = leftLeaves[Math.floor(Math.random() * leftLeaves.length)].room;
+            const roomB = rightLeaves[Math.floor(Math.random() * rightLeaves.length)].room;
+
+            if (roomA && roomB) {
+                this.createCorridor(roomA.cx, roomA.cy, roomB.cx, roomB.cy);
             }
         }
     }
@@ -214,25 +292,49 @@ export default class GridSystem {
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
                 if (this.grid[y][x] === 0) { // Only spawn on clean floor
-                    locations.push({ x, y });
+                    // Exclude spawn rooms
+                    const inSpawnRoom = this.spawnRooms.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+                    if (!inSpawnRoom) {
+                        locations.push({ x, y });
+                    }
                 }
             }
         }
         return locations;
     }
 
-    getSpawnPoint() {
+    getSpawnPoint(isPlayer = false) {
+        // If player, try to spawn in a safe spawn room
+        if (isPlayer && this.spawnRooms.length > 0) {
+            // Pick a random spawn room
+            const room = this.spawnRooms[Math.floor(Math.random() * this.spawnRooms.length)];
+            // Return center of that room
+            return { x: room.cx, y: room.cy };
+        }
+
         // Find a random floor tile
         let attempts = 0;
         while(attempts < 100) {
             const x = Math.floor(Math.random() * this.width);
             const y = Math.floor(Math.random() * this.height);
-            if (this.grid[y][x] === 0 && !this.getEntityAt(x, y)) {
+            // Ensure we don't spawn monsters in spawn rooms
+            const inSpawnRoom = this.spawnRooms.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+            
+            if (this.grid[y][x] === 0 && !this.getEntityAt(x, y) && !inSpawnRoom) {
                 return { x, y };
             }
             attempts++;
         }
-        return { x: 1, y: 1 }; // Fallback
+        
+        // Fallback: Scan for first valid floor tile
+        for (let y = 1; y < this.height - 1; y++) {
+            for (let x = 1; x < this.width - 1; x++) {
+                if (this.grid[y][x] === 0 && !this.getEntityAt(x, y)) {
+                    return { x, y };
+                }
+            }
+        }
+        return { x: 1, y: 1 }; // Ultimate Fallback
     }
 
     getChestSpawnLocations() {
@@ -240,6 +342,7 @@ export default class GridSystem {
         if (!this.rooms) return locs;
         
         for (const r of this.rooms) {
+            if (r.isSpawn) continue; // No chests in spawn rooms
             // Add corners (guaranteed to be inside room and usually safe from center-corridors)
             locs.push({ x: r.x, y: r.y });
             locs.push({ x: r.x + r.w - 1, y: r.y });
@@ -269,17 +372,26 @@ export default class GridSystem {
             [validTiles[i], validTiles[j]] = [validTiles[j], validTiles[i]];
         }
 
-        // Spawn Enemies
+        // Spawn Enemies in Rooms
         const enemyTypes = Object.keys(config.enemies || {});
-        const enemyCount = 15; 
         
-        for (let i = 0; i < enemyCount; i++) {
-            if (validTiles.length === 0 || enemyTypes.length === 0) break;
-            const pos = validTiles.pop();
-            const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
-            const id = `enemy_${Date.now()}_${i}`;
-            this.addEntity(id, pos.x, pos.y);
-            combatSystem.registerEntity(id, type, false);
+        for (const room of this.rooms) {
+            if (room.isSpawn) continue; // Safe zone
+
+            // Handful of enemies per room (1-3)
+            const count = Math.floor(Math.random() * 3) + 1;
+            for (let i = 0; i < count; i++) {
+                if (enemyTypes.length === 0) break;
+                
+                // Random pos in room (padded)
+                const ex = Math.floor(Math.random() * (room.w - 2)) + room.x + 1;
+                const ey = Math.floor(Math.random() * (room.h - 2)) + room.y + 1;
+                
+                const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+                const id = `enemy_${Date.now()}_${Math.random()}`;
+                this.addEntity(id, ex, ey);
+                combatSystem.registerEntity(id, type, false);
+            }
         }
 
         // Spawn Loot
@@ -290,14 +402,13 @@ export default class GridSystem {
             [chestLocs[i], chestLocs[j]] = [chestLocs[j], chestLocs[i]];
         }
 
-        const lootTable = config.items.loot_table_tier_1 || [];
-        const lootCount = 10;
+        const lootCount = 15;
         
         for (let i = 0; i < lootCount; i++) {
-            if (chestLocs.length === 0 || lootTable.length === 0) break;
+            if (chestLocs.length === 0) break;
             const pos = chestLocs.pop();
-            const entry = lootTable[Math.floor(Math.random() * lootTable.length)];
-            lootSystem.spawnLoot(pos.x, pos.y, entry.itemId, 1, 'chest', Math.floor(Math.random() * 11) + 5); // 5-15 gold
+            const tier = lootSystem.getLootTier(pos.x, pos.y, this.width, this.height);
+            lootSystem.spawnRandomLoot(pos.x, pos.y, tier);
         }
     }
 }

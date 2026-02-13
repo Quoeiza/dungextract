@@ -20,7 +20,7 @@ export default class RenderSystem {
         // Visual Effects
         this.effects = []; // { x, y, type, startTime, duration }
         this.floatingTexts = []; // { x, y, text, color, startTime, duration }
-        this.visualEntities = new Map(); // id -> { x, y, attackStart, flashStart }
+        this.visualEntities = new Map(); // id -> { x, y, targetX, targetY, startX, startY, moveStartTime, attackStart, flashStart }
         this.shake = { intensity: 0, duration: 0, startTime: 0 };
     }
 
@@ -220,14 +220,34 @@ export default class RenderSystem {
             // Update Visual State
             let visual = this.visualEntities.get(id);
             if (!visual) {
-                visual = { x: pos.x, y: pos.y, attackStart: 0, flashStart: 0 };
+                visual = { 
+                    x: pos.x, y: pos.y, 
+                    targetX: pos.x, targetY: pos.y,
+                    startX: pos.x, startY: pos.y,
+                    moveStartTime: 0,
+                    attackStart: 0, flashStart: 0 
+                };
                 this.visualEntities.set(id, visual);
             }
 
-            // Smooth Movement (Exponential Slide)
-            // Lerp factor 0.15 gives a nice snappy but smooth feel at 60fps
-            visual.x += (pos.x - visual.x) * 0.15;
-            visual.y += (pos.y - visual.y) * 0.15;
+            // Detect Position Change
+            if (pos.x !== visual.targetX || pos.y !== visual.targetY) {
+                visual.startX = visual.x;
+                visual.startY = visual.y;
+                visual.targetX = pos.x;
+                visual.targetY = pos.y;
+                visual.moveStartTime = now;
+            }
+
+            // Linear Interpolation over 250ms
+            const moveDuration = 250;
+            const t = Math.min(1, (now - visual.moveStartTime) / moveDuration);
+            visual.x = visual.startX + (visual.targetX - visual.startX) * t;
+            visual.y = visual.startY + (visual.targetY - visual.startY) * t;
+
+            // Hop Animation (Based on fractional grid position)
+            // We use the fractional part of the visual position to determine the hop arc
+            const hopOffset = -Math.sin(Math.PI * Math.max(Math.abs(visual.x % 1), Math.abs(visual.y % 1))) * 4;
 
             // Don't draw entities in FOW (unless it's me)
             // Use logical position for FOW check to prevent popping
@@ -255,13 +275,13 @@ export default class RenderSystem {
             }
 
             const screenX = (visual.x * this.tileSize) - this.camera.x + offsetX;
-            const screenY = (visual.y * this.tileSize) - this.camera.y + offsetY;
+            const screenY = (visual.y * this.tileSize) - this.camera.y + offsetY + hopOffset;
 
             // Health Bar
             if (pos.hp !== undefined && pos.maxHp !== undefined && pos.hp < pos.maxHp) {
                 const barWidth = 24;
                 const barHeight = 4;
-                const hpRatio = Math.max(0, pos.hp / pos.maxHp);
+                const hpRatio = pos.maxHp > 0 ? Math.max(0, pos.hp / pos.maxHp) : 0;
                 
                 this.ctx.fillStyle = '#333';
                 this.ctx.fillRect(screenX + 4, screenY - 8, barWidth, barHeight);
@@ -283,13 +303,29 @@ export default class RenderSystem {
             if (isFlashing) {
                 this.ctx.fillStyle = '#FFFFFF';
             } else {
-                const baseColor = isMe ? '#4a6' : '#a44';
+                let baseColor = isMe ? '#4a6' : '#a44';
+                
+                // Monster override for self
+                if (isMe && pos.team === 'monster') {
+                    baseColor = '#ff3333'; // Brighter red for self-monster
+                }
+
+                // Monster Type Overrides
+                if (pos.team === 'monster') {
+                    if (pos.type === 'slime') baseColor = '#88cc44';
+                    if (pos.type === 'skeleton') baseColor = '#dddddd';
+                }
                 
                 // Gradient Body
                 const grad = this.ctx.createRadialGradient(screenX + 16, screenY + 16, 2, screenX + 16, screenY + 16, 12);
-                grad.addColorStop(0, isMe ? '#6c8' : '#c66');
+                grad.addColorStop(0, isMe && pos.team !== 'monster' ? '#6c8' : '#c66');
                 grad.addColorStop(1, baseColor);
                 
+                // Simple shape differentiation
+                if (pos.type === 'slime') {
+                    // Slimes are slightly translucent
+                    this.ctx.globalAlpha = 0.9;
+                }
                 this.ctx.fillStyle = grad;
             }
 
@@ -316,8 +352,9 @@ export default class RenderSystem {
         
         if (!Number.isFinite(targetCamX) || !Number.isFinite(targetCamY)) return;
 
-        this.camera.x += (targetCamX - this.camera.x) * 0.1;
-        this.camera.y += (targetCamY - this.camera.y) * 0.1;
+        // Instant lock to center on player
+        this.camera.x = targetCamX;
+        this.camera.y = targetCamY;
     }
 
     drawLoot(lootMap) {
@@ -536,6 +573,39 @@ export default class RenderSystem {
     render(grid, entities, loot, projectiles, interaction, localPlayerId) {
         const myPos = entities.get(localPlayerId);
         this.updateFog(myPos, grid);
+        
+        // Camera: Match player's interpolated visual movement
+        if (myPos) {
+            // We update the visual state for the local player immediately here
+            // so the camera can lock onto the smooth interpolated position before drawing.
+            const now = Date.now();
+            let visual = this.visualEntities.get(localPlayerId);
+            if (!visual) {
+                visual = { 
+                    x: myPos.x, y: myPos.y, 
+                    targetX: myPos.x, targetY: myPos.y,
+                    startX: myPos.x, startY: myPos.y,
+                    moveStartTime: 0,
+                    attackStart: 0, flashStart: 0 
+                };
+                this.visualEntities.set(localPlayerId, visual);
+            }
+
+            if (myPos.x !== visual.targetX || myPos.y !== visual.targetY) {
+                visual.startX = visual.x;
+                visual.startY = visual.y;
+                visual.targetX = myPos.x;
+                visual.targetY = myPos.y;
+                visual.moveStartTime = now;
+            }
+
+            const moveDuration = 250;
+            const t = Math.min(1, (now - visual.moveStartTime) / moveDuration);
+            visual.x = visual.startX + (visual.targetX - visual.startX) * t;
+            visual.y = visual.startY + (visual.targetY - visual.startY) * t;
+
+            this.updateCamera(visual.x, visual.y);
+        }
 
         this.clear();
 

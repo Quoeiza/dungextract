@@ -45,6 +45,9 @@ export default class InputManager extends EventEmitter {
         let intent = null;
 
         switch(code) {
+            // Movement & Attack:
+            // We restore the event-based triggers here to ensure instant response to single taps.
+            // The polling in main.js will handle the "held" state for continuous movement.
             case 'ArrowUp':
             case 'KeyW':
             case 'Numpad8':
@@ -65,19 +68,16 @@ export default class InputManager extends EventEmitter {
             case 'Numpad6':
                 intent = { type: 'MOVE', direction: { x: 1, y: 0 } };
                 break;
-            case 'KeyQ':
+            // Diagonals
             case 'Numpad7':
                 intent = { type: 'MOVE', direction: { x: -1, y: -1 } };
                 break;
-            case 'KeyE':
             case 'Numpad9':
                 intent = { type: 'MOVE', direction: { x: 1, y: -1 } };
                 break;
-            case 'KeyZ':
             case 'Numpad1':
                 intent = { type: 'MOVE', direction: { x: -1, y: 1 } };
                 break;
-            case 'KeyX':
             case 'Numpad3':
                 intent = { type: 'MOVE', direction: { x: 1, y: 1 } };
                 break;
@@ -85,6 +85,7 @@ export default class InputManager extends EventEmitter {
             case 'Enter':
                 intent = { type: 'ATTACK' };
                 break;
+            
             case 'KeyR':
                 intent = { type: 'PICKUP' };
                 break;
@@ -108,5 +109,36 @@ export default class InputManager extends EventEmitter {
         if (intent) {
             this.emit('intent', intent);
         }
+    }
+
+    getMovementIntent() {
+        let x = 0;
+        let y = 0;
+
+        if (this.keys['ArrowUp'] || this.keys['KeyW'] || this.keys['Numpad8']) y -= 1;
+        if (this.keys['ArrowDown'] || this.keys['KeyS'] || this.keys['Numpad2']) y += 1;
+        if (this.keys['ArrowLeft'] || this.keys['KeyA'] || this.keys['Numpad4']) x -= 1;
+        if (this.keys['ArrowRight'] || this.keys['KeyD'] || this.keys['Numpad6']) x += 1;
+        
+        // Diagonals
+        if (this.keys['Numpad7']) { x -= 1; y -= 1; }
+        if (this.keys['Numpad9']) { x += 1; y -= 1; }
+        if (this.keys['Numpad1']) { x -= 1; y += 1; }
+        if (this.keys['Numpad3']) { x += 1; y += 1; }
+        
+        // Clamp to ensure valid direction vector (-1, 0, 1)
+        const dir = { x: Math.sign(x), y: Math.sign(y) };
+
+        if (dir.x !== 0 || dir.y !== 0) {
+            return { type: 'MOVE', direction: dir };
+        }
+        return null;
+    }
+
+    getAttackIntent() {
+        if (this.keys['Space'] || this.keys['Enter']) {
+            return { type: 'ATTACK' };
+        }
+        return null;
     }
 }

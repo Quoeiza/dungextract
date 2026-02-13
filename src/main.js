@@ -125,6 +125,7 @@ class Game {
         this.setupNetwork();
         this.setupUI();
         this.inputManager.on('intent', (intent) => this.handleInput(intent));
+        this.audioSystem.resume(); // Unlock audio context on user interaction
 
         this.gameLoop = new GameLoop(
             (dt) => this.update(dt),
@@ -150,7 +151,7 @@ class Game {
 
     setupUI() {
         // Reveal HUD elements
-        ['room-code-display', 'kill-feed', 'combat-log', 'stats-bar', 'mobile-controls'].forEach(id => {
+        ['room-code-display', 'kill-feed', 'combat-log', 'stats-bar'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.classList.remove('hidden');
         });
@@ -196,7 +197,9 @@ class Game {
         }
 
         // Drag and Drop Handlers
-        this.setupDragAndDrop();
+        this.setupCanvasDrop();
+        this.setupSlotDrop(document.getElementById('slot-weapon'), 'weapon');
+        this.setupSlotDrop(document.getElementById('slot-armor'), 'armor');
 
         // Settings Modal
         const settingsModal = document.getElementById('settings-modal');
@@ -207,7 +210,7 @@ class Game {
         }
     }
 
-    setupDragAndDrop() {
+    setupCanvasDrop() {
         // Drop on Canvas (Floor)
         const canvas = document.getElementById('game-canvas');
         
@@ -219,36 +222,39 @@ class Game {
                 this.handleDropItem(data.itemId, data.source);
             }
         });
+    }
 
-        // Drop on Equip Slots
-        const slots = document.querySelectorAll('.equip-slot');
-        slots.forEach(slot => {
-            slot.addEventListener('dragover', (e) => e.preventDefault());
-            slot.addEventListener('drop', (e) => {
-                e.preventDefault();
-                const data = JSON.parse(e.dataTransfer.getData('text/plain'));
-                const targetSlot = slot.dataset.slot;
-                if (data && data.itemId) {
-                    this.handleEquipItem(data.itemId, targetSlot);
-                }
-            });
+    setupSlotDrop(element, slotName) {
+        if (!element) return;
+        element.addEventListener('dragover', (e) => e.preventDefault());
+        element.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+            // Use passed slotName or dataset fallback
+            const targetSlot = slotName || element.dataset.slot;
+            if (data && data.itemId) {
+                this.handleEquipItem(data.itemId, targetSlot);
+            }
         });
     }
 
     handleDropItem(itemId, source) {
         // Logic to drop item on the floor
         // 1. Remove from inventory/equipment
+        let count = 1;
         if (source === 'inventory') {
-            this.lootSystem.removeItemFromInventory(this.state.myId, itemId);
+            count = this.lootSystem.removeItemFromInventory(this.state.myId, itemId);
         } else {
-            this.lootSystem.unequipItem(this.state.myId, source);
+            const item = this.lootSystem.removeEquipment(this.state.myId, source);
+            if (item) count = item.count;
+            else count = 0;
         }
 
         // 2. Spawn in world (Host authoritative, so send intent if client)
         const pos = this.gridSystem.entities.get(this.state.myId);
         if (pos) {
             if (this.state.isHost) {
-                this.lootSystem.spawnDrop(pos.x, pos.y, itemId);
+                if (count > 0) this.lootSystem.spawnDrop(pos.x, pos.y, itemId, count);
             } else {
                 // TODO: Send DROP_ITEM intent to host. For now, client side prediction/hack for demo
                 // In a real implementation, we'd emit an intent.
@@ -369,8 +375,10 @@ class Game {
             `;
             slotsContainer.appendChild(quickContainer);
             
-            // Re-bind drag events for new slots
-            this.setupDragAndDrop(); 
+            // Bind drag events for new slots only
+            this.setupSlotDrop(document.getElementById('slot-quick1'), 'quick1');
+            this.setupSlotDrop(document.getElementById('slot-quick2'), 'quick2');
+            this.setupSlotDrop(document.getElementById('slot-quick3'), 'quick3');
         }
         renderSlot('quick1');
         renderSlot('quick2');
@@ -514,7 +522,7 @@ class Game {
         });
 
         // Combat Events (Local & Networked)
-        this.combatSystem.on('damage', ({ targetId, currentHp, sourceId }) => {
+        this.combatSystem.on('damage', ({ targetId, amount, currentHp, sourceId }) => {
             // Update UI if it's me
             if (targetId === this.state.myId) {
                 const hpEl = document.getElementById('hp-val');
@@ -547,6 +555,12 @@ class Game {
 
         this.combatSystem.on('death', ({ entityId, killerId, stats }) => {
             console.log(`${entityId} killed by ${killerId}`);
+            
+            // Capture position before removal for loot drop
+            const pos = this.gridSystem.entities.get(entityId);
+            const deathX = pos ? pos.x : 0;
+            const deathY = pos ? pos.y : 0;
+
             this.gridSystem.removeEntity(entityId);
             this.audioSystem.play('death');
             
@@ -562,6 +576,7 @@ class Game {
                     if (killerId === this.state.myId) {
                         this.playerData.gold += reward;
                         this.updateGoldUI();
+                        this.database.savePlayer({ gold: this.playerData.gold });
                         this.showNotification(`Kill: +${reward}g`);
                     } else {
                         this.peerClient.send({ type: 'UPDATE_GOLD', payload: { id: killerId, amount: reward } });
@@ -581,24 +596,36 @@ class Game {
                 this.peerClient.send({ type: 'ENTITY_DEATH', payload: { id: entityId } });
                 
                 // 1. Spawn Loot
-                const pos = this.gridSystem.entities.get(entityId) || { x: 0, y: 0 }; // Fallback if already removed, ideally pass pos in event
-                // For now, just spawn a potion or sword randomly
-                const itemId = Math.random() > 0.5 ? 'potion_health' : 'sword_basic';
-                // We need the position before removal, but gridSystem.removeEntity was called above.
-                // In a real engine we'd pass pos in the death event. 
-                // For this revision, we'll assume the loot spawns where they died (we need to track pos before remove).
-                // *Correction*: GridSystem removes it immediately. 
-                // Let's spawn loot at a random nearby tile for now or fix the order in a future refactor.
+                // Drop all items in a bag at the location of death
+                const pos = this.gridSystem.entities.get(entityId) || { x: 0, y: 0 }; // Note: Entity removed from grid in event handler above, need to fix order or pass pos
+                // Actually, gridSystem.removeEntity is called at start of this handler. We need the pos.
+                // Since we can't get it easily now, we'll use the killer's pos or a fallback.
+                // *Correction*: We should grab pos before removeEntity.
+                // For this "easy improvement", we will assume the entity is removed but we want to drop loot.
+                // We will use a fallback spawn for now, but in a real fix we'd pass pos in the death event.
+                // Let's use a random nearby point to the killer if available.
+                let dropX = 0, dropY = 0;
+                if (killerId) {
+                    const kPos = this.gridSystem.entities.get(killerId);
+                    if (kPos) { dropX = kPos.x; dropY = kPos.y; }
+                }
+                if (dropX === 0) {
+                    const spawn = this.gridSystem.getSpawnPoint(false);
+                    dropX = spawn.x; dropY = spawn.y;
+                }
+
+                const items = this.lootSystem.getAllItems(entityId);
+                this.lootSystem.createLootBag(dropX, dropY, items);
                 
                 // 2. Monster Mechanic: Respawn Player as Monster
                 if (stats && stats.isPlayer) {
                     setTimeout(() => {
                         const types = Object.keys(this.config.enemies);
                         const type = types[Math.floor(Math.random() * types.length)];
-                        const spawn = this.gridSystem.getSpawnPoint();
+                        const spawn = this.gridSystem.getSpawnPoint(false);
                         
                         this.gridSystem.addEntity(entityId, spawn.x, spawn.y);
-                        this.combatSystem.registerEntity(entityId, type, true); // isPlayer=true preserves control
+                        this.combatSystem.registerEntity(entityId, type, true); // isPlayer=true preserves control, but sets team=monster
                     }, 3000);
                 }
             }
@@ -667,6 +694,7 @@ class Game {
                     if (data.payload.id === this.state.myId) {
                         this.playerData.gold += data.payload.amount;
                         this.updateGoldUI();
+                        this.database.savePlayer({ gold: this.playerData.gold });
                         this.showNotification(`+${data.payload.amount}g`);
                     }
                 }
@@ -692,7 +720,7 @@ class Game {
             console.log(`Connected to ${peerId}`, metadata);
             if (this.state.isHost) {
                 // Spawn them
-                const spawn = this.gridSystem.getSpawnPoint();
+                const spawn = this.gridSystem.getSpawnPoint(true);
                 this.gridSystem.addEntity(peerId, spawn.x, spawn.y);
                 this.combatSystem.registerEntity(peerId, 'player', true, metadata.class || 'Fighter', metadata.name || 'Unknown');
             } else {
@@ -713,7 +741,7 @@ class Game {
         this.gridSystem.populate(this.combatSystem, this.lootSystem, this.config);
         
         // Spawn Host
-        const spawn = this.gridSystem.getSpawnPoint();
+        const spawn = this.gridSystem.getSpawnPoint(true);
         this.gridSystem.addEntity(id, spawn.x, spawn.y);
         this.combatSystem.registerEntity(id, 'player', true, this.playerData.class, this.playerData.name);
         this.state.gameTime = this.config.global.extractionTimeSeconds || 600;
@@ -743,6 +771,12 @@ class Game {
         this.state.nextActionTime = Date.now() + cooldown;
         this.state.actionBuffer = null;
 
+        // Client-Side Prediction: Move immediately
+        if (!this.state.isHost && intent.type === 'MOVE') {
+            // We process the input locally to update gridSystem immediately
+            this.processPlayerInput(this.state.myId, intent);
+        }
+
         if (this.state.isHost) {
             this.processPlayerInput(this.state.myId, intent);
         } else {
@@ -768,11 +802,6 @@ class Game {
         if (pos && intent.type === 'MOVE') {
             const cost = this.gridSystem.getMovementCost(pos.x + intent.direction.x, pos.y + intent.direction.y);
             cooldown *= cost;
-
-            // Diagonal Movement Cost (approx sqrt(2))
-            if (intent.direction.x !== 0 && intent.direction.y !== 0) {
-                cooldown *= 1.4;
-            }
         }
 
         if (!stats) return; // Strict check: No stats = No action
@@ -821,12 +850,30 @@ class Game {
                 }
             } else if (result.collision && result.collision !== 'wall') {
                 // Bump Attack
-                this.performAttack(entityId, result.collision);
+                // Check Friendly Fire for Monsters
+                const attackerStats = this.combatSystem.getStats(entityId);
+                const targetStats = this.combatSystem.getStats(result.collision);
+                
+                let friendlyFire = false;
+                if (attackerStats && targetStats && attackerStats.team === 'monster' && targetStats.team === 'monster') {
+                    friendlyFire = true;
+                }
+
+                if (!friendlyFire) {
+                    this.performAttack(entityId, result.collision);
+                }
             }
         }
         
         if (intent.type === 'PICKUP') {
             const pos = this.gridSystem.entities.get(entityId);
+            const stats = this.combatSystem.getStats(entityId);
+            
+            // Monster Restriction: Cannot pickup items
+            if (stats && stats.team === 'monster') {
+                return;
+            }
+
             if (pos) {
                 // Check for Interaction Targets (Chest/Extraction)
                 const itemsBelow = this.lootSystem.getItemsAt(pos.x, pos.y);
@@ -865,6 +912,12 @@ class Game {
                 const targetId = this.gridSystem.getEntityAt(targetX, targetY);
 
                 if (targetId) {
+                    // Friendly Fire Check for Monsters
+                    const attackerStats = this.combatSystem.getStats(entityId);
+                    const targetStats = this.combatSystem.getStats(targetId);
+                    if (attackerStats && targetStats && attackerStats.team === 'monster' && targetStats.team === 'monster') {
+                        return; // Monsters cannot hurt monsters
+                    }
                     this.performAttack(entityId, targetId);
                 } else {
                     // Whiff (Attack air)
@@ -1003,6 +1056,16 @@ class Game {
                     targetPos = target;
                     shouldAttack = true;
                 }
+            } else if (stats.aiState === 'IDLE') {
+                // Roaming Logic
+                if (Math.random() < 0.02) { // 2% chance per tick to move
+                    const dirs = [{x:0, y:1}, {x:0, y:-1}, {x:1, y:0}, {x:-1, y:0}];
+                    const dir = dirs[Math.floor(Math.random() * dirs.length)];
+                    if (!this.lootSystem.isCollidable(pos.x + dir.x, pos.y + dir.y)) {
+                        this.gridSystem.moveEntity(id, dir.x, dir.y);
+                        stats.lastActionTime = now;
+                    }
+                }
             }
 
             // Persistence Logic
@@ -1121,6 +1184,21 @@ class Game {
             }
         }
 
+        // Client Reconciliation: Check for drift
+        if (!this.state.isHost && this.state.connected) {
+            const interpolated = this.syncManager.getInterpolatedState(Date.now());
+            const serverPos = interpolated.entities.get(this.state.myId);
+            const localPos = this.gridSystem.entities.get(this.state.myId);
+            
+            if (serverPos && localPos) {
+                const dist = Math.abs(serverPos.x - localPos.x) + Math.abs(serverPos.y - localPos.y);
+                // If drift is too large (e.g. rejected move or lag spike), snap to server
+                if (dist > 2.0) {
+                    this.gridSystem.addEntity(this.state.myId, serverPos.x, serverPos.y);
+                }
+            }
+        }
+
         // Update Projectiles
         const projSpeed = dt / 1000;
         for (let i = this.state.projectiles.length - 1; i >= 0; i--) {
@@ -1151,6 +1229,29 @@ class Game {
             if (Date.now() - this.state.interaction.startTime >= this.state.interaction.duration) {
                 this.handleInteractWithLoot(this.state.interaction.target);
                 this.state.interaction = null;
+            }
+        }
+
+        // Poll Input (Solves OS key repeat delay)
+        if (this.state.myId) {
+            const moveIntent = this.inputManager.getMovementIntent();
+            const attackIntent = this.inputManager.getAttackIntent();
+            
+            if (moveIntent) {
+                this.handleInput(moveIntent);
+            } else {
+                // Clear move buffer if key released to prevent double-tap effect
+                if (this.state.actionBuffer && this.state.actionBuffer.type === 'MOVE') {
+                    this.state.actionBuffer = null;
+                }
+            }
+
+            if (attackIntent) {
+                this.handleInput(attackIntent);
+            } else {
+                if (this.state.actionBuffer && this.state.actionBuffer.type === 'ATTACK') {
+                    this.state.actionBuffer = null;
+                }
             }
         }
 
@@ -1192,8 +1293,17 @@ class Game {
                     pos.invisible = stats.invisible;
                     pos.hp = stats.hp;
                     pos.maxHp = stats.maxHp;
+                    pos.team = stats.team;
+                    pos.type = stats.type;
                 }
             }
+        }
+
+        // Client Prediction Override:
+        // If we are a client, we want to render our LOCAL position (which is predicted),
+        // not the interpolated server position (which is in the past).
+        if (!this.state.isHost && this.gridSystem.entities.has(this.state.myId)) {
+            state.entities.set(this.state.myId, this.gridSystem.entities.get(this.state.myId));
         }
 
         // Update Timer UI

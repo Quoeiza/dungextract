@@ -19,7 +19,7 @@
 
 | Action | Key / Input |
 | :--- | :--- |
-| **Move** | `WASD` / `Arrows` / `Numpad` / `QEZX` (Diagonals) |
+| **Move** | `WASD` / `Arrows` / `Numpad` (Cardinals combine for Diagonals) |
 | **Attack** | `Space` / `Enter` |
 | **Interact / Pickup** | `R` |
 | **Class Ability** | `F` |

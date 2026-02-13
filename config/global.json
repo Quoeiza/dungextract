@@ -3,7 +3,7 @@
     "globalCooldownMs": 250,
     "tileSize": 32,
     "extractionTimeSeconds": 900,
-    "dungeonWidth": 50,
-    "dungeonHeight": 50,
+    "dungeonWidth": 200,
+    "dungeonHeight": 200,
     "maxPlayers": 16
 }

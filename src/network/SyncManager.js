@@ -13,7 +13,7 @@ export default class SyncManager {
         for (const [id, pos] of gridSystem.entities) {
             const stats = combatSystem.getStats(id);
             // Attach visual stats to the entity position data for rendering
-            entities.push([id, { ...pos, hp: stats ? stats.hp : 0, maxHp: stats ? stats.maxHp : 100 }]);
+            entities.push([id, { ...pos, hp: stats ? stats.hp : 0, maxHp: stats ? stats.maxHp : 100, team: stats ? stats.team : 'player', type: stats ? stats.type : 'player' }]);
         }
 
         return {
@@ -59,7 +59,14 @@ export default class SyncManager {
         }
 
         // Fallback if no valid history
-        if (!prev) return { entities: new Map(), loot: new Map(), gameTime: 0 }; 
+        if (!prev) {
+            // Return oldest snapshot if available to prevent flickering
+            if (this.snapshotBuffer.length > 0) {
+                prev = this.snapshotBuffer[0];
+                return { entities: new Map(prev.entities), loot: new Map(prev.loot || []), gameTime: prev.gameTime };
+            }
+            return { entities: new Map(), loot: new Map(), gameTime: 0 }; 
+        }
         if (!next) return { entities: new Map(prev.entities), loot: new Map(prev.loot || []), gameTime: prev.gameTime };
 
         let ratio = 0;
@@ -91,7 +98,9 @@ export default class SyncManager {
                 x, y, 
                 facing: nextPos.facing,
                 hp: nextPos.hp,
-                maxHp: nextPos.maxHp
+                maxHp: nextPos.maxHp,
+                team: nextPos.team,
+                type: nextPos.type
             });
         });
 

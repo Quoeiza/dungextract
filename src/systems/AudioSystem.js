@@ -10,6 +10,12 @@ export default class AudioSystem {
         }
     }
 
+    resume() {
+        if (this.enabled && this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    }
+
     playTone(freq, type, duration, vol = 0.1) {
         if (!this.enabled) return;
         try {
