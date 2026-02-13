@@ -46,7 +46,7 @@ export default class AssetLoader {
         const net = await this.loadConfig('./config/networking.json');
         
         await this.loadImages({
-            'knight': './assets/images/Knight.png'
+            'knight': './assets/images/knight.png'
         });
 
         return { global, items, enemies, net };
