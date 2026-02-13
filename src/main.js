@@ -886,7 +886,6 @@ class Game {
                 }
                 
                 // Check for Extraction
-                const pos = this.gridSystem.entities.get(entityId);
                 // Round coordinates to ensure valid grid access (prevent float indexing)
                 if (pos && this.gridSystem.grid[Math.round(pos.y)][Math.round(pos.x)] === 9) {
                     this.handleExtraction(entityId);
