@@ -321,31 +321,49 @@ export default class RenderSystem {
             const screenY = Math.floor((visual.y * this.tileSize) - this.camera.y + offsetY + hopOffset + bumpY);
 
             // Health Bar (Curved under sprite)
-            if (pos.hp !== undefined && pos.maxHp !== undefined && pos.hp < pos.maxHp) {
+            if (pos.hp !== undefined && pos.maxHp !== undefined && pos.hp > 0) {
                 const hpRatio = pos.maxHp > 0 ? Math.max(0, pos.hp / pos.maxHp) : 0;
                 const cx = screenX + (this.tileSize * 0.5);
-                const cy = screenY + (this.tileSize * 0.85); // Position at feet
-                const r = this.tileSize * 0.35;
+                const cy = screenY + (this.tileSize * 1); // Position slightly below feet
                 
-                this.ctx.lineWidth = 4;
-                this.ctx.lineCap = 'round';
+                const w = this.tileSize * 0.35;
+                const h = this.tileSize * 0.2;  // Curve depth
+                const th = this.tileSize * 0.05; // Thickness
+                const tipR = this.tileSize * 0.02; // Nub radius
 
-                // Background Arc (Dark)
-                this.ctx.beginPath();
-                this.ctx.arc(cx, cy, r, Math.PI * 0.8, Math.PI * 0.2, true); // Counter-clockwise from bottom-left to bottom-right
-                this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-                this.ctx.stroke();
-
-                // Foreground Arc (Health)
-                if (hpRatio > 0) {
-                    const currentEndAngle = Math.PI * 0.8 - (Math.PI * 0.6 * hpRatio);
+                const definePath = () => {
                     this.ctx.beginPath();
-                    this.ctx.arc(cx, cy, r, Math.PI * 0.8, currentEndAngle, true);
-                    this.ctx.strokeStyle = hpRatio > 0.5 ? '#4d4' : '#d44';
-                    this.ctx.stroke();
+                    // Left Nub (Bottom to Top)
+                    this.ctx.arc(cx - w, cy, tipR, Math.PI * 0.5, Math.PI * 1.5);
+                    // Top Curve
+                    this.ctx.quadraticCurveTo(cx, cy + h - th, cx + w, cy - tipR);
+                    // Right Nub (Top to Bottom)
+                    this.ctx.arc(cx + w, cy, tipR, -Math.PI * 0.5, Math.PI * 0.5);
+                    // Bottom Curve
+                    this.ctx.quadraticCurveTo(cx, cy + h, cx - w, cy + tipR);
+                    this.ctx.closePath();
+                };
+
+                // Background
+                definePath();
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                this.ctx.fill();
+
+                // Foreground
+                if (hpRatio > 0) {
+                    this.ctx.save();
+                    definePath();
+                    this.ctx.clip();
+                    this.ctx.fillStyle = hpRatio > 0.5 ? '#4d4' : '#d44';
+                    this.ctx.fillRect(cx - w, cy, (2 * w) * hpRatio, h);
+                    this.ctx.restore();
                 }
-                this.ctx.lineWidth = 1; // Reset
-                this.ctx.lineCap = 'butt';
+
+                // Border
+                definePath();
+                this.ctx.lineWidth = 0.3;
+                this.ctx.strokeStyle = '#000';
+                this.ctx.stroke();
             }
 
             // Shadow
@@ -565,7 +583,7 @@ export default class RenderSystem {
             const elapsed = now - t.startTime;
             const progress = Math.min(1, elapsed / t.duration);
             const screenX = (t.x * this.tileSize) - this.camera.x + (this.tileSize / 2);
-            const screenY = (t.y * this.tileSize) - this.camera.y - (progress * (this.tileSize * 0.625)); // Float up
+            const screenY = (t.y * this.tileSize) - this.camera.y - (progress * (this.tileSize * 1.25)); // Float up faster
 
             // Pop effect
             let scale = 1.0;
