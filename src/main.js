@@ -47,16 +47,16 @@ class Game {
         // 4. Initialize Systems (Pre-allocation)
         const global = configs.global || {};
         this.gridSystem = new GridSystem(
-            global.dungeonWidth || 50, 
-            global.dungeonHeight || 50, 
-            global.tileSize || 64
+            global.dungeonWidth || 48, 
+            global.dungeonHeight || 48, 
+            global.tileSize || 48
         );
         
         this.renderSystem = new RenderSystem(
             'game-canvas', 
             window.innerWidth, 
             window.innerHeight, 
-            global.tileSize || 64
+            global.tileSize || 48
         );
         this.renderSystem.setAssetLoader(this.assetLoader);
 

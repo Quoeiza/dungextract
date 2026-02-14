@@ -8,7 +8,7 @@ export default class RenderSystem {
         this.ctx = this.canvas.getContext('2d');
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
-        this.tileSize = tileSize || 64; // Ensure default if undefined
+        this.tileSize = tileSize || 48; // Ensure default if undefined
         
         // Camera
         this.camera = { x: 0, y: 0 };
@@ -41,7 +41,7 @@ export default class RenderSystem {
 
     drawGrid(grid, width, height, playerPos, torches) {
         if (!grid || !grid.length) return;
-        if (this.tileSize < 1) this.tileSize = 64; // Safety fallback
+        if (this.tileSize < 1) this.tileSize = 48; // Safety fallback
 
         // Hard clamp camera to prevent infinite loops from huge numbers
         if (this.camera.x < -50000) this.camera.x = -50000;
