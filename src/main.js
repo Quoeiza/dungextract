@@ -169,8 +169,21 @@ class Game {
     }
 
     setupUI() {
+        // Ensure Activity Log exists (Migration from Kill Feed)
+        if (!document.getElementById('activity-log')) {
+            const oldFeed = document.getElementById('kill-feed');
+            if (oldFeed) {
+                oldFeed.id = 'activity-log';
+            } else {
+                const log = document.createElement('div');
+                log.id = 'activity-log';
+                const ui = document.getElementById('ui-layer');
+                if (ui) ui.appendChild(log);
+            }
+        }
+
         // Reveal HUD elements
-        ['room-code-display', 'kill-feed', 'stats-bar'].forEach(id => {
+        ['room-code-display', 'activity-log', 'stats-bar'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.classList.remove('hidden');
         });
@@ -516,12 +529,12 @@ class Game {
         }
     }
 
-    addKillFeed(msg) {
-        const feed = document.getElementById('kill-feed');
+    addActivityLog(msg) {
+        const feed = document.getElementById('activity-log');
         if (!feed) return;
 
         const div = document.createElement('div');
-        div.className = 'kill-msg';
+        div.className = 'activity-msg';
         div.innerHTML = msg;
         
         // Ensure opacity transition logic
@@ -537,16 +550,22 @@ class Game {
         const maxItems = 5;
         const threshold = children.length - maxItems;
 
-        children.forEach((child, index) => {
-            if (index < threshold) {
-                if (child.style.opacity !== '0') {
-                    child.style.opacity = '0';
-                    setTimeout(() => { if (child.parentNode) child.remove(); }, 500);
+        if (threshold > 0) {
+            for (let i = 0; i < threshold; i++) {
+                const child = children[i];
+                if (!child.dataset.fading) {
+                    child.dataset.fading = "true";
+                    setTimeout(() => {
+                        if (child.parentNode) {
+                            child.style.opacity = '0';
+                            setTimeout(() => { 
+                                if (child.parentNode) child.remove(); 
+                            }, 500);
+                        }
+                    }, 3000);
                 }
-            } else {
-                child.style.opacity = '1';
             }
-        });
+        }
     }
 
     processLootInteraction(entityId, loot) {
@@ -580,7 +599,7 @@ class Game {
                 const itemName = this.getItemName(result.itemId);
                 this.showNotification(`${itemName}${goldText}`);
                 this.renderSystem.addFloatingText(this.gridSystem.entities.get(entityId).x, this.gridSystem.entities.get(entityId).y, `+${itemName}`, '#FFD700');
-                this.addKillFeed(`Looted ${itemName}${goldText}`);
+                this.addActivityLog(`Looted ${itemName}${goldText}`);
             } else {
                 // Notify client
                 this.peerClient.send({ type: 'LOOT_SUCCESS', payload: { id: entityId } });
@@ -634,7 +653,7 @@ class Game {
                 const tName = targetId === this.state.myId ? "You" : (tStats ? (tStats.name || tStats.type) : "Unknown");
                 const sName = sourceId === this.state.myId ? "You" : (sStats ? (sStats.name || sStats.type) : "Environment");
                 
-                this.addKillFeed(`${sName} hit ${tName} for ${amount}`);
+                this.addActivityLog(`${sName} hit ${tName} for ${amount}`);
             }
 
             // Floating Damage Text
@@ -697,8 +716,8 @@ class Game {
                     killMsg = `<span class="highlight">${victimName}</span> was eliminated by <span class="highlight">${killerName}</span>`;
                 }
 
-                this.peerClient.send({ type: 'KILL_FEED', payload: { msg: killMsg } });
-                this.addKillFeed(killMsg);
+                this.peerClient.send({ type: 'ACTIVITY_LOG', payload: { msg: killMsg } });
+                this.addActivityLog(killMsg);
 
                 this.peerClient.send({ type: 'ENTITY_DEATH', payload: { id: entityId } });
                 
@@ -818,8 +837,8 @@ class Game {
                     }
                 }
 
-                if (data.type === 'KILL_FEED') {
-                    this.addKillFeed(data.payload.msg);
+                if (data.type === 'ACTIVITY_LOG') {
+                    this.addActivityLog(data.payload.msg);
                 }
                 
                 if (data.type === 'LOOT_SUCCESS') {
@@ -1431,7 +1450,7 @@ class Game {
             const quickSlot = `quick${intent.slot + 1}`;
             const effect = this.lootSystem.consumeItem(entityId, quickSlot);
             if (effect) {
-                this.addKillFeed(`Used ${effect.name} (Slot ${intent.slot + 1})`);
+                this.addActivityLog(`Used ${effect.name} (Slot ${intent.slot + 1})`);
                 if (effect.effect === 'heal') {
                     const stats = this.combatSystem.getStats(entityId);
                     if (stats) {
@@ -1456,7 +1475,7 @@ class Game {
             const result = this.combatSystem.useAbility(entityId);
             if (result) {
                 this.showNotification(`${result.ability}`);
-                this.addKillFeed(`Used ${result.ability}`);
+                this.addActivityLog(`Used ${result.ability}`);
                 // Sync visual effects if needed
                 if (result.effect === 'stealth') {
                     const pos = this.gridSystem.entities.get(entityId);
@@ -1561,8 +1580,8 @@ class Game {
         // 3. Notify
         if (this.state.isHost) {
             this.peerClient.send({ type: 'PLAYER_EXTRACTED', payload: { id: entityId } });
-            this.peerClient.send({ type: 'KILL_FEED', payload: { msg: `<span class="highlight">${name}</span> escaped the dungeon!` } });
-            this.addKillFeed(`<span class="highlight">${name}</span> escaped the dungeon!`);
+            this.peerClient.send({ type: 'ACTIVITY_LOG', payload: { msg: `<span class="highlight">${name}</span> escaped the dungeon!` } });
+            this.addActivityLog(`<span class="highlight">${name}</span> escaped the dungeon!`);
 
             this.checkGameOver();
             
@@ -1751,8 +1770,8 @@ class Game {
     showGameOver(msg) {
         const ui = document.getElementById('ui-layer');
         
-        // Freeze Kill Feed: Clone to detach from existing timeouts and stop fading
-        const feed = document.getElementById('kill-feed');
+        // Freeze Activity Log: Clone to detach from existing timeouts and stop fading
+        const feed = document.getElementById('activity-log');
         if (feed) {
             const clone = feed.cloneNode(true);
             feed.parentNode.replaceChild(clone, feed);

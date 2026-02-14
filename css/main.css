@@ -284,7 +284,7 @@ button {
     color: #aaa;
 }
 
-#kill-feed {
+#activity-log {
     position: absolute;
     top: 50px;
     right: 10px;
@@ -296,7 +296,7 @@ button {
     z-index: 100;
 }
 
-.kill-msg {
+.activity-msg {
     background: rgba(0, 0, 0, 0.6);
     color: #ddd;
     padding: 5px 10px;
