@@ -47,6 +47,7 @@ export default class InputManager extends EventEmitter {
                 const rect = this.canvas.getBoundingClientRect();
                 this.mouse.x = e.clientX - rect.left;
                 this.mouse.y = e.clientY - rect.top;
+                this.emit('mousemove', { x: this.mouse.x, y: this.mouse.y });
             });
 
             this.canvas.addEventListener('mousedown', (e) => {

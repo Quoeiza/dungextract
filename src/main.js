@@ -141,7 +141,8 @@ class Game {
         this.setupNetwork();
         this.setupUI();
         this.inputManager.on('intent', (intent) => this.handleInput(intent));
-        this.inputManager.on('click', (data) => this.handleMouseClick(data)); // Keep for UI/Movement, Attack logic moved to polling
+        this.inputManager.on('click', (data) => this.handleMouseClick(data));
+        this.inputManager.on('mousemove', (data) => this.handleMouseMove(data));
         this.audioSystem.resume(); // Unlock audio context on user interaction
 
         this.gameLoop = new GameLoop(
@@ -224,6 +225,56 @@ class Game {
             document.getElementById('btn-resume').onclick = () => this.toggleSettingsMenu();
             document.getElementById('btn-settings').onclick = () => alert("Settings coming soon!");
             document.getElementById('btn-quit').onclick = () => location.reload();
+        }
+
+        this.createInteractionUI();
+    }
+
+    createInteractionUI() {
+        const uiLayer = document.getElementById('ui-layer') || document.body;
+
+        // Tooltip
+        if (!document.getElementById('game-tooltip')) {
+            const tooltip = document.createElement('div');
+            tooltip.id = 'game-tooltip';
+            Object.assign(tooltip.style, {
+                position: 'absolute',
+                padding: '8px',
+                background: 'rgba(10, 10, 10, 0.9)',
+                color: '#eee',
+                border: '1px solid #444',
+                borderRadius: '4px',
+                pointerEvents: 'none',
+                display: 'none',
+                zIndex: '2000',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.5)'
+            });
+            uiLayer.appendChild(tooltip);
+        }
+
+        // Context Menu
+        if (!document.getElementById('game-context-menu')) {
+            const menu = document.createElement('div');
+            menu.id = 'game-context-menu';
+            Object.assign(menu.style, {
+                position: 'absolute',
+                background: '#1a1a1a',
+                border: '1px solid #555',
+                minWidth: '140px',
+                zIndex: '2001',
+                display: 'none',
+                flexDirection: 'column',
+                boxShadow: '0 4px 6px rgba(0,0,0,0.5)'
+            });
+            uiLayer.appendChild(menu);
+
+            // Close menu on global click
+            window.addEventListener('click', () => {
+                menu.style.display = 'none';
+            });
         }
     }
 
@@ -801,7 +852,17 @@ class Game {
 
     handleMouseClick(data) {
         if (!this.state.myId || !this.state.connected) return;
-        if (data.button !== 0) return; // Only Left Click for now
+        
+        // Close Context Menu on any canvas interaction
+        const ctxMenu = document.getElementById('game-context-menu');
+        if (ctxMenu) ctxMenu.style.display = 'none';
+
+        if (data.button === 2) {
+            this.handleContextMenu(data);
+            return;
+        }
+
+        if (data.button !== 0) return; // Only Left Click for rest
 
         const cam = this.renderSystem.camera;
         const ts = this.config.global.tileSize || 64;
@@ -838,6 +899,115 @@ class Game {
             const path = this.gridSystem.findPath(pos.x, pos.y, gridX, gridY);
             if (path) this.state.autoPath = path;
         }
+    }
+
+    handleMouseMove(data) {
+        const tooltip = document.getElementById('game-tooltip');
+        if (!tooltip) return;
+
+        const cam = this.renderSystem.camera;
+        const ts = this.config.global.tileSize || 64;
+        const gridX = Math.floor((data.x + cam.x) / ts);
+        const gridY = Math.floor((data.y + cam.y) / ts);
+
+        let content = [];
+
+        // 1. Entity Data
+        const entityId = this.gridSystem.getEntityAt(gridX, gridY);
+        if (entityId) {
+            const stats = this.combatSystem.getStats(entityId);
+            if (stats) {
+                const name = stats.name || stats.type;
+                const hpPercent = stats.maxHp > 0 ? Math.floor((stats.hp / stats.maxHp) * 100) : 0;
+                const color = stats.team === 'monster' ? '#ff5555' : (entityId === this.state.myId ? '#55ff55' : '#55aaff');
+                content.push(`<div style="font-weight:bold; color:${color}">${name}</div>`);
+                content.push(`<div>HP: ${Math.ceil(stats.hp)}/${stats.maxHp} (${hpPercent}%)</div>`);
+            }
+        }
+
+        // 2. Loot Data
+        const items = this.lootSystem.getItemsAt(gridX, gridY);
+        if (items.length > 0) {
+            if (content.length > 0) content.push('<div style="height:1px; background:#444; margin:4px 0;"></div>');
+            items.forEach(item => {
+                const config = this.lootSystem.getItemConfig(item.itemId);
+                const name = config ? config.name : item.itemId;
+                content.push(`<div style="color:#ffd700">📦 ${name} ${item.count > 1 ? `x${item.count}` : ''}</div>`);
+            });
+        }
+
+        if (content.length > 0) {
+            tooltip.innerHTML = content.join('');
+            tooltip.style.display = 'block';
+            // Offset slightly to not cover cursor
+            tooltip.style.left = `${data.x + 16}px`;
+            tooltip.style.top = `${data.y + 16}px`;
+        } else {
+            tooltip.style.display = 'none';
+        }
+    }
+
+    handleContextMenu(data) {
+        const menu = document.getElementById('game-context-menu');
+        if (!menu) return;
+
+        menu.innerHTML = '';
+        const cam = this.renderSystem.camera;
+        const ts = this.config.global.tileSize || 64;
+        const gridX = Math.floor((data.x + cam.x) / ts);
+        const gridY = Math.floor((data.y + cam.y) / ts);
+
+        const actions = [];
+
+        // Entity Actions
+        const entityId = this.gridSystem.getEntityAt(gridX, gridY);
+        if (entityId && entityId !== this.state.myId) {
+            actions.push({
+                label: '⚔️ Attack',
+                action: () => this.handleInput({ type: 'TARGET_ACTION', x: gridX, y: gridY })
+            });
+        }
+
+        // Movement (if walkable)
+        if (this.gridSystem.isWalkable(gridX, gridY)) {
+            actions.push({
+                label: '👣 Move Here',
+                action: () => {
+                    const pos = this.gridSystem.entities.get(this.state.myId);
+                    if (pos) {
+                        const path = this.gridSystem.findPath(pos.x, pos.y, gridX, gridY);
+                        if (path) this.state.autoPath = path;
+                    }
+                }
+            });
+        }
+
+        if (actions.length === 0) return;
+
+        actions.forEach(item => {
+            const el = document.createElement('div');
+            el.innerText = item.label;
+            Object.assign(el.style, {
+                padding: '10px 15px',
+                cursor: 'pointer',
+                color: '#eee',
+                borderBottom: '1px solid #333',
+                fontSize: '14px',
+                fontFamily: 'sans-serif'
+            });
+            el.onmouseover = () => el.style.background = '#333';
+            el.onmouseout = () => el.style.background = 'transparent';
+            el.onclick = (e) => {
+                e.stopPropagation(); // Prevent window click from firing immediately
+                item.action();
+                menu.style.display = 'none';
+            };
+            menu.appendChild(el);
+        });
+
+        menu.style.left = `${data.x}px`;
+        menu.style.top = `${data.y}px`;
+        menu.style.display = 'flex';
     }
 
     toggleSettingsMenu() {
