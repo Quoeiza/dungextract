@@ -663,7 +663,7 @@ export default class RenderSystem {
 
         let loops = 0;
         while (true) {
-            if (loops++ > 100) return false; // Safety break
+            if (loops++ > 1000) return false; // Safety break
             if (x === tx && y === ty) return true; // Reached target
             
             // Check collision (ignore start tile and target tile)
@@ -732,21 +732,23 @@ export default class RenderSystem {
 
         const iPx = Math.floor(px);
         const iPy = Math.floor(py);
-        const r = Math.ceil(radius);
         
-        // Iterate only the relevant area
-        const startY = Math.max(0, iPy - r);
-        const endY = Math.min(grid.length - 1, iPy + r);
-        const startX = Math.max(0, iPx - r);
-        const endX = Math.min(grid[0].length - 1, iPx + r);
+        // Iterate over the visible screen area plus padding to ensure all on-screen walls cast shadows
+        const startCol = Math.floor(this.camera.x / ts) - 2;
+        const endCol = startCol + (this.canvas.width / this.scale / ts) + 4;
+        const startRow = Math.floor(this.camera.y / ts) - 2;
+        const endRow = startRow + (this.canvas.height / this.scale / ts) + 4;
+
+        const startY = Math.max(0, Math.floor(startRow));
+        const endY = Math.min(grid.length - 1, Math.floor(endRow));
+        const startX = Math.max(0, Math.floor(startCol));
+        const endX = Math.min(grid[0].length - 1, Math.floor(endCol));
 
         for (let y = startY; y <= endY; y++) {
+            let casterSeg = null;
+            let maskerSeg = null;
+
             for (let x = startX; x <= endX; x++) {
-                // Optimization: Distance check
-                const dx = x - iPx;
-                const dy = y - iPy;
-                if (dx*dx + dy*dy > r*r) continue;
-                
                 // --- LINKED SYSTEM: TileMapManager Classification ---
                 const isWall = this.tileMapManager.getTileVal(grid, x, y) === 1;
                 const isFrontFace = this.tileMapManager.isFrontFace(grid, x, y);
@@ -755,16 +757,35 @@ export default class RenderSystem {
                 // 1. Maskers: Walls, Faces, and Voids/Roofs.
                 // These are "above" the floor and should not receive floor shadows.
                 if (isWall || isVoid) {
-                    maskers.push({x, y});
+                    if (maskerSeg) {
+                        maskerSeg.w++;
+                    } else {
+                        maskerSeg = { x, y, w: 1 };
+                    }
+                } else {
+                    if (maskerSeg) {
+                        maskers.push(maskerSeg);
+                        maskerSeg = null;
+                    }
                 }
 
                 // 2. Casters: Only Front Faces (Vertical Walls) cast shadows.
                 if (isFrontFace) {
-                    if (this.checkLineOfSight(grid, px, py, x, y)) {
-                        casters.push({x, y});
+                    if (casterSeg) {
+                        casterSeg.w++;
+                    } else {
+                        casterSeg = { x, y, w: 1 };
+                    }
+                } else {
+                    if (casterSeg) {
+                        casters.push(casterSeg);
+                        casterSeg = null;
                     }
                 }
             }
+            // Flush segments at end of row
+            if (maskerSeg) maskers.push(maskerSeg);
+            if (casterSeg) casters.push(casterSeg);
         }
 
         sCtx.save();
@@ -775,7 +796,7 @@ export default class RenderSystem {
         sCtx.filter = 'blur(4px)'; // Slight blur for soft shadows
 
         for (const wall of casters) {
-            this.drawShadowVolume(sCtx, wall.x, wall.y, px, py, radius);
+            this.drawShadowVolume(sCtx, wall.x, wall.y, wall.w, 1, px, py, radius);
         }
 
         // B. Mask out ALL Walls (Prevents "Green Circle" issue)
@@ -787,7 +808,7 @@ export default class RenderSystem {
         for (const wall of maskers) {
             const tx = Math.floor((wall.x * ts) - this.camera.x);
             const ty = Math.floor((wall.y * ts) - this.camera.y);
-            sCtx.fillRect(tx, ty, ts, ts);
+            sCtx.fillRect(tx, ty, wall.w * ts, ts);
         }
         sCtx.restore();
 
@@ -813,22 +834,25 @@ export default class RenderSystem {
         this.ctx.restore();
     }
 
-    drawShadowVolume(ctx, gx, gy, lx, ly, radius) {
+    drawShadowVolume(ctx, gx, gy, gw, gh, lx, ly, radius) {
         const ts = this.tileSize;
         const tx = (gx * ts) - this.camera.x;
         const ty = (gy * ts) - this.camera.y;
+        const tw = gw * ts;
+        const th = gh * ts;
         const lsx = (lx * ts) - this.camera.x + (ts * 0.5);
         const lsy = (ly * ts) - this.camera.y + (ts * 0.5);
 
         const corners = [
             { x: tx, y: ty },
-            { x: tx + ts, y: ty },
-            { x: tx + ts, y: ty + ts },
-            { x: tx, y: ty + ts }
+            { x: tx + tw, y: ty },
+            { x: tx + tw, y: ty + th },
+            { x: tx, y: ty + th }
         ];
 
         const points = [];
-        const projectDist = radius * ts * 2;
+        // Use a large distance to ensure shadows extend off-screen
+        const projectDist = Math.max(this.canvas.width, this.canvas.height) * 2;
 
         corners.forEach(c => {
             points.push(c);
