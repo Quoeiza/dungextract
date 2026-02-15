@@ -55,17 +55,19 @@ export default class RenderSystem {
         if (!grid || !grid.length) return;
 
         const ts = this.tileSize;
+        const camX = Math.floor(this.camera.x);
+        const camY = Math.floor(this.camera.y);
         
         // Define view bounds for culling
-        const startCol = Math.floor(this.camera.x / ts);
+        const startCol = Math.floor(camX / ts);
         const endCol = startCol + (this.canvas.width / this.scale / ts) + 2;
-        const startRow = Math.floor(this.camera.y / ts);
+        const startRow = Math.floor(camY / ts);
         const endRow = startRow + (this.canvas.height / this.scale / ts) + 2;
         const viewBounds = { startCol, endCol, startRow, endRow };
 
         // --- Pass 1: Draw base walls and floors with TileMapManager ---
         this.ctx.save();
-        this.ctx.translate(-this.camera.x, -this.camera.y);
+        this.ctx.translate(-camX, -camY);
         this.tileMapManager.draw(this.ctx, grid, viewBounds);
         this.ctx.restore();
 
@@ -84,8 +86,8 @@ export default class RenderSystem {
                 // TileMapManager has already drawn the base for tiles 0 and 1.
                 // We only need to render the *additional* procedural parts.
                 if (tile !== 0 && tile !== 1) {
-                    const screenX = Math.floor((x * ts) - this.camera.x);
-                    const screenY = Math.floor((y * ts) - this.camera.y);
+                    const screenX = (x * ts) - camX;
+                    const screenY = (y * ts) - camY;
                     const n = noise(x, y);
 
                     // Re-add procedural rendering for special tiles
@@ -128,8 +130,8 @@ export default class RenderSystem {
                 }
 
                 // --- Pass 3: Apply Lighting Overlay to everything ---
-                const screenX = Math.floor((x * ts) - this.camera.x);
-                const screenY = Math.floor((y * ts) - this.camera.y);
+                const screenX = (x * ts) - camX;
+                const screenY = (y * ts) - camY;
                 let brightness = 0;
                 if (isVisible && playerPos) {
                     const dist = Math.sqrt((x - playerPos.x) ** 2 + (y - playerPos.y) ** 2);
@@ -276,8 +278,8 @@ export default class RenderSystem {
                 }
             }
 
-            const screenX = Math.floor((visual.x * this.tileSize) - this.camera.x + offsetX + bumpX);
-            const screenY = Math.floor((visual.y * this.tileSize) - this.camera.y + offsetY + hopOffset + bumpY);
+            const screenX = Math.floor((visual.x * this.tileSize) - Math.floor(this.camera.x) + offsetX + bumpX);
+            const screenY = Math.floor((visual.y * this.tileSize) - Math.floor(this.camera.y) + offsetY + hopOffset + bumpY);
 
             // Health Bar (Curved under sprite)
             if (pos.hp !== undefined && pos.maxHp !== undefined && pos.hp > 0) {
@@ -439,8 +441,8 @@ export default class RenderSystem {
             // Don't draw loot in FOW
             if (!this.visible.has(`${loot.x},${loot.y}`)) return;
 
-            const screenX = Math.floor((loot.x * this.tileSize) - this.camera.x);
-            const screenY = Math.floor((loot.y * this.tileSize) - this.camera.y);
+            const screenX = Math.floor((loot.x * this.tileSize) - Math.floor(this.camera.x));
+            const screenY = Math.floor((loot.y * this.tileSize) - Math.floor(this.camera.y));
             
             if (loot.type === 'bag') {
                 // Draw Bag (Sack)
@@ -499,8 +501,8 @@ export default class RenderSystem {
         this.effects = this.effects.filter(e => now - e.startTime < e.duration);
 
         this.effects.forEach(e => {
-            const screenX = Math.floor((e.x * this.tileSize) - this.camera.x);
-            const screenY = Math.floor((e.y * this.tileSize) - this.camera.y);
+            const screenX = Math.floor((e.x * this.tileSize) - Math.floor(this.camera.x));
+            const screenY = Math.floor((e.y * this.tileSize) - Math.floor(this.camera.y));
 
             if (e.type === 'slash') {
                 this.ctx.strokeStyle = '#FFF';
@@ -541,8 +543,8 @@ export default class RenderSystem {
         this.floatingTexts.forEach(t => {
             const elapsed = now - t.startTime;
             const progress = Math.min(1, elapsed / t.duration);
-            const screenX = (t.x * this.tileSize) - this.camera.x + (this.tileSize / 2);
-            const screenY = (t.y * this.tileSize) - this.camera.y - (progress * (this.tileSize * 1.25)); // Float up faster
+            const screenX = (t.x * this.tileSize) - Math.floor(this.camera.x) + (this.tileSize / 2);
+            const screenY = (t.y * this.tileSize) - Math.floor(this.camera.y) - (progress * (this.tileSize * 1.25)); // Float up faster
 
             // Pop effect
             let scale = 1.0;
@@ -560,8 +562,8 @@ export default class RenderSystem {
 
     drawProjectiles(projectiles) {
         projectiles.forEach(p => {
-            const screenX = Math.floor((p.x * this.tileSize) - this.camera.x);
-            const screenY = Math.floor((p.y * this.tileSize) - this.camera.y);
+            const screenX = Math.floor((p.x * this.tileSize) - Math.floor(this.camera.x));
+            const screenY = Math.floor((p.y * this.tileSize) - Math.floor(this.camera.y));
             
             // Draw Arrow
             this.ctx.save();
@@ -582,8 +584,8 @@ export default class RenderSystem {
     drawInteractionBar(interaction, playerPos) {
         if (!interaction || !playerPos) return;
         
-        const screenX = Math.floor((playerPos.x * this.tileSize) - this.camera.x);
-        const screenY = Math.floor((playerPos.y * this.tileSize) - this.camera.y);
+        const screenX = Math.floor((playerPos.x * this.tileSize) - Math.floor(this.camera.x));
+        const screenY = Math.floor((playerPos.y * this.tileSize) - Math.floor(this.camera.y));
         const progress = Math.min(1, (Date.now() - interaction.startTime) / interaction.duration);
 
         // Border
