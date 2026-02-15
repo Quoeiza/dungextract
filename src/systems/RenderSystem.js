@@ -17,14 +17,14 @@ export default class RenderSystem {
         // Lighting Layer
         this.lightCanvas = document.createElement('canvas');
         this.lightCtx = this.lightCanvas.getContext('2d');
-        this.lightCanvas.width = window.innerWidth;
-        this.lightCanvas.height = window.innerHeight;
+        // Dimensions set in resize()
 
         // Shadow Layer (Offscreen)
         this.shadowCanvas = document.createElement('canvas');
         this.shadowCtx = this.shadowCanvas.getContext('2d');
-        this.shadowCanvas.width = window.innerWidth;
-        this.shadowCanvas.height = window.innerHeight;
+        // Dimensions set in resize()
+
+        this.resize(); // Initialize sizes
 
         // TileMap Manager for sprite-based rendering
         this.tileMapManager = new TileMapManager(dungeonTilesetConfig);
@@ -55,10 +55,14 @@ export default class RenderSystem {
     resize() {
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
-        this.lightCanvas.width = window.innerWidth;
-        this.lightCanvas.height = window.innerHeight;
-        this.shadowCanvas.width = window.innerWidth;
-        this.shadowCanvas.height = window.innerHeight;
+        
+        // Size lighting buffers to Game Resolution
+        const gameW = this.canvas.width / this.scale;
+        const gameH = this.canvas.height / this.scale;
+        this.lightCanvas.width = gameW;
+        this.lightCanvas.height = gameH;
+        this.shadowCanvas.width = gameW;
+        this.shadowCanvas.height = gameH;
         this.ctx.imageSmoothingEnabled = false;
     }
 
@@ -677,22 +681,15 @@ export default class RenderSystem {
         }
     }
 
-    renderLighting(grid, playerVisual) {
-        const ctx = this.lightCtx;
-        const sCtx = this.shadowCtx;
-        const w = this.lightCanvas.width;
-        const h = this.lightCanvas.height;
-        const ts = this.tileSize;
-
-        // 1. Clear & Draw Ambient Darkness (High Contrast)
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = 'rgba(20, 19, 31, 0.9)'; // Grimdark ambient
-        ctx.fillRect(0, 0, w, h);
-
+    drawShadowLayer(grid, playerVisual) {
         if (!playerVisual) return;
 
-        // 2. Torch Configuration
+        const sCtx = this.shadowCtx;
+        const w = this.shadowCanvas.width;
+        const h = this.shadowCanvas.height;
+        const ts = this.tileSize;
+
+        // Torch Configuration
         const radius = 10; // Tiles
         const px = playerVisual.x;
         const py = playerVisual.y;
@@ -707,24 +704,9 @@ export default class RenderSystem {
         const sx = (px * ts) - this.camera.x + (ts * lOffX);
         const sy = (py * ts) - this.camera.y + (ts * lOffY);
         const screenRadius = radius * ts;
-
-        ctx.save();
         
-        // 3. Cut the "Light Hole" (Attenuation)
-        // We use destination-out to remove the darkness, creating the light source.
-        ctx.globalCompositeOperation = 'destination-out';
-        const grad = ctx.createRadialGradient(sx, sy, ts * 1.5, sx, sy, screenRadius);
-        grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)'); // Core
-        grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.3)'); // Falloff
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)'); // Edge
-        
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-
-        // 4. Prepare Shadows (Offscreen)
+        // Prepare Shadow Canvas
+        sCtx.save();
         sCtx.clearRect(0, 0, w, h);
         
         // --- IMPROVED SHADOW LOGIC ---
@@ -801,14 +783,22 @@ export default class RenderSystem {
         sCtx.save();
         
         // A. Draw Shadow Volumes
-        // Optimization: Draw opaque first to merge overlaps (prevents banding), then apply alpha/blur once.
+        // Optimization: Draw opaque first to merge overlaps (prevents banding).
+        // Apply blur HERE so that the shadow volume is soft, but we can mask it sharply later.
         sCtx.globalCompositeOperation = 'source-over';
         sCtx.fillStyle = '#14131f'; // Match ambient RGB (20, 19, 31)
-        sCtx.filter = 'none'; 
+        sCtx.filter = 'blur(4px)'; 
 
         for (const wall of casters) {
+            // Draw the wall base to ensure shadow continuity under the wall before masking.
+            // This prevents the "lighter edge" artifact where the blurred shadow volume meets the wall.
+            const wx = (wall.x * ts) - this.camera.x;
+            const wy = (wall.y * ts) - this.camera.y;
+            sCtx.fillRect(wx, wy, wall.w * ts, ts);
+
             this.drawShadowVolume(sCtx, wall.x, wall.y, wall.w, 1, px, py, radius, lOffX, lOffY);
         }
+        sCtx.filter = 'none'; // Reset filter for sharp masking
 
         // B. Mask out ALL Walls (Prevents "Green Circle" issue)
         sCtx.globalCompositeOperation = 'destination-out';
@@ -821,34 +811,83 @@ export default class RenderSystem {
         }
         sCtx.restore();
 
-        // 6. Apply Shadows to Light Layer
-        ctx.save();
-        // Optimization: Clip shadows to the light radius to prevent darkening the ambient area further
-        // This prevents "double darkness" artifacts outside the torch range.
-        ctx.beginPath();
-        ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
-        ctx.clip();
-
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.filter = 'blur(4px)'; // Blur the merged shadow map for soft edges
-        ctx.globalAlpha = 0.9; // Apply ambient opacity here
-        ctx.drawImage(this.shadowCanvas, 0, 0);
-        ctx.restore();
-
-        // 7. Apply Lighting Layer to Main Canvas
-        this.ctx.drawImage(this.lightCanvas, 0, 0);
-
-        // 8. Warm Hue Overlay (Torch Color)
+        // Apply Shadows to Main Canvas
         this.ctx.save();
-        this.ctx.globalCompositeOperation = 'overlay';
-        const colorGrad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius * 0.8);
-        colorGrad.addColorStop(0, 'rgba(255, 160, 60, 0.5)'); // Warm Orange
-        colorGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        this.ctx.fillStyle = colorGrad;
+        // Optimization: Clip shadows to the light radius to prevent darkening the ambient area further
         this.ctx.beginPath();
         this.ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
-        this.ctx.fill();
+        this.ctx.clip();
+
+        this.ctx.globalCompositeOperation = 'source-over';
+        this.ctx.filter = 'none'; 
+        this.ctx.globalAlpha = 0.9; 
+        
+        // Draw shadow map
+        this.ctx.drawImage(this.shadowCanvas, 0, 0);
         this.ctx.restore();
+    }
+
+    drawAmbientLayer(playerVisual) {
+        const ctx = this.lightCtx;
+        const w = this.lightCanvas.width;
+        const h = this.lightCanvas.height;
+        const ts = this.tileSize;
+
+        ctx.save();
+        
+        // 1. Clear & Draw Ambient Darkness
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = 'rgba(20, 19, 31, 0.9)'; // Grimdark ambient
+        ctx.fillRect(0, 0, w, h);
+
+        if (playerVisual) {
+            const px = playerVisual.x;
+            const py = playerVisual.y;
+            const sx = (px * ts) - this.camera.x + (ts * 0.5);
+            const sy = (py * ts) - this.camera.y + (ts * 0.5);
+            const screenRadius = 10 * ts;
+
+            // 2. Cut the "Light Hole"
+            ctx.globalCompositeOperation = 'destination-out';
+            const grad = ctx.createRadialGradient(sx, sy, ts * 1.5, sx, sy, screenRadius);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+            grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.3)');
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 3. Warm Hue Overlay (Torch Color) - Drawn directly on main canvas later? 
+            // No, we can't draw it here because this canvas is 'darkness'.
+            // We will draw the ambient map, then draw the warm overlay on main ctx.
+        }
+        ctx.restore();
+
+        // Apply Ambient Layer to Main Canvas
+        this.ctx.drawImage(this.lightCanvas, 0, 0);
+
+        // Draw Warm Overlay
+        if (playerVisual) {
+            const px = playerVisual.x;
+            const py = playerVisual.y;
+            const sx = (px * ts) - this.camera.x + (ts * 0.5);
+            const sy = (py * ts) - this.camera.y + (ts * 0.5);
+            const screenRadius = 10 * ts;
+
+            this.ctx.save();
+            this.ctx.globalCompositeOperation = 'overlay';
+            const colorGrad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius * 0.8);
+            colorGrad.addColorStop(0, 'rgba(255, 160, 60, 0.5)'); // Warm Orange
+            colorGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            this.ctx.fillStyle = colorGrad;
+            this.ctx.beginPath();
+            this.ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
+            this.ctx.fill();
+            this.ctx.restore();
+        }
     }
 
     drawShadowVolume(ctx, gx, gy, gw, gh, lx, ly, radius, lOffX = 0.5, lOffY = 0.5) {
@@ -995,13 +1034,17 @@ export default class RenderSystem {
         this.drawFloor(grid, grid[0].length, grid.length);
         this.drawWalls(grid, grid[0].length, grid.length);
         this.drawLoot(loot);
+        
+        // 1. Draw Cast Shadows (Under Entities)
+        this.drawShadowLayer(grid, this.visualEntities.get(localPlayerId));
+
         this.drawProjectiles(projectiles);
         this.drawEntities(entities, localPlayerId);
         this.drawEffects();
         this.drawRoof(grid, grid[0].length, grid.length);
         
-        // Render Lighting Pass (Dynamic Shadows & Torch)
-        this.renderLighting(grid, this.visualEntities.get(localPlayerId));
+        // 2. Draw Ambient Darkness (Over Everything)
+        this.drawAmbientLayer(this.visualEntities.get(localPlayerId));
         
         this.ctx.restore(); // Restore shake
 
