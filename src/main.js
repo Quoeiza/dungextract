@@ -37,6 +37,17 @@ class Game {
         // 1. Load Configuration
         const configs = await this.assetLoader.loadAll();
         this.config = configs;
+
+        // TEST OVERRIDE: Replace all enemies with Skeleton
+        this.config.enemies = {
+            'skeleton': {
+                name: 'Skeleton',
+                hp: 30,
+                maxHp: 30,
+                damage: 5,
+                xp: 10
+            }
+        };
         
         // 2. Load Player Data
         this.playerData = (await this.database.getPlayer()) || { name: 'Player', gold: 0, extractions: 0 };

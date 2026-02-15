@@ -461,18 +461,30 @@ export default class GridSystem {
     }
 
     populate(combatSystem, lootSystem, config) {
-        // Test Mode: Single Respawning Enemy
-        const spawn = this.getSpawnPoint();
-        const id = `test_enemy_${Date.now()}`;
-        this.addEntity(id, spawn.x, spawn.y);
-        
-        // Pick first enemy type from config or default to 'slime'
-        const type = config.enemies && Object.keys(config.enemies).length > 0 
-            ? Object.keys(config.enemies)[0] 
-            : 'slime';
+        // Test Mode: Spawn skeletons in every room
+        let totalSpawned = 0;
+        if (this.rooms) {
+            for (const room of this.rooms) {
+                if (room.isSpawn) continue; // Keep spawn rooms safe
 
-        combatSystem.registerEntity(id, type, false);
-        console.log(`GridSystem: Spawned test enemy ${type} (${id}) at ${spawn.x},${spawn.y}`);
+                const count = Math.floor(Math.random() * 2) + 2; // 2-3 per room
+                for (let i = 0; i < count; i++) {
+                    for (let attempt = 0; attempt < 5; attempt++) {
+                        const rx = room.x + Math.floor(Math.random() * room.w);
+                        const ry = room.y + Math.floor(Math.random() * room.h);
+                        
+                        if (this.grid[ry][rx] === 0 && !this.getEntityAt(rx, ry)) {
+                            const id = `skeleton_${totalSpawned}_${Date.now()}`;
+                            this.addEntity(id, rx, ry);
+                            combatSystem.registerEntity(id, 'skeleton', false);
+                            totalSpawned++;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        console.log(`GridSystem: Spawned ${totalSpawned} skeletons.`);
     }
 
     addFeature(tileType, count, maxSize) {

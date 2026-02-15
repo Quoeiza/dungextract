@@ -375,6 +375,7 @@ export default class RenderSystem {
             // Determine Sprite
             let spriteKey = null;
             if (pos.type === 'player') spriteKey = 'knight';
+            if (pos.type === 'skeleton') spriteKey = 'skelly';
             
             const img = this.assetLoader ? this.assetLoader.getImage(spriteKey) : null;
 
