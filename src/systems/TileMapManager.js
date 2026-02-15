@@ -184,6 +184,14 @@ export class TileMapManager {
         ];
     }
 
+    canonicalizeWang(w) {
+        // 0:N, 1:NE, 2:E, 3:SE, 4:S, 5:SW, 6:W, 7:NW
+        if (w[0] === 0 || w[2] === 0) w[1] = 0;
+        if (w[2] === 0 || w[4] === 0) w[3] = 0;
+        if (w[4] === 0 || w[6] === 0) w[5] = 0;
+        if (w[6] === 0 || w[0] === 0) w[7] = 0;
+    }
+
     draw(ctx, map, viewBounds) {
         if (!this.assets.floor || !this.assets.wall) return;
         const ts = this.tileSize;
@@ -213,6 +221,7 @@ export class TileMapManager {
                     // --- DRAW FRONT FACE ---
                     // This is the vertical stone wall.
                     const wangID = this.getWangID(map, x, y, 'FACE');
+                    this.canonicalizeWang(wangID);
                     const key = wangID.join(',');
                     
                     if (this.wallMap.has(key)) {
@@ -226,6 +235,7 @@ export class TileMapManager {
                     // --- DRAW VOID / ROOF ---
                     // This is the black ceiling or the edge rim.
                     const wangID = this.getWangID(map, x, y, 'VOID');
+                    this.canonicalizeWang(wangID);
                     const key = wangID.join(',');
 
                     if (this.voidMap.has(key)) {
