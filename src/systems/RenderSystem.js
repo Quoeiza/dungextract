@@ -13,6 +13,7 @@ export default class RenderSystem {
         this.ctx.imageSmoothingEnabled = false;
         this.tileSize = tileSize || 48; // Match tile manager config
         this.scale = 2;
+        this.lightRadius = 200;
 
         // Lighting Layer
         this.lightCanvas = document.createElement('canvas');
@@ -691,7 +692,8 @@ export default class RenderSystem {
         const ts = this.tileSize;
 
         // Torch Configuration
-        const radius = 10; // Tiles
+        const screenRadius = this.lightRadius;
+        const radius = screenRadius / ts; // Tiles
         const px = playerVisual.x;
         const py = playerVisual.y;
         
@@ -704,7 +706,6 @@ export default class RenderSystem {
         // Use float coordinates for smooth lighting, matching shadow volume calculations
         const sx = (px * ts) - this.camera.x + (ts * lOffX);
         const sy = (py * ts) - this.camera.y + (ts * lOffY);
-        const screenRadius = radius * ts;
         
         // Prepare Shadow Canvas
         sCtx.save();
@@ -722,11 +723,18 @@ export default class RenderSystem {
         const iPx = Math.floor(px);
         const iPy = Math.floor(py);
         
-        // Iterate over the visible screen area plus padding to ensure all on-screen walls cast shadows
-        const startCol = Math.floor(this.camera.x / ts) - 2;
-        const endCol = startCol + (this.canvas.width / this.scale / ts) + 4;
-        const startRow = Math.floor(this.camera.y / ts) - 2;
-        const endRow = startRow + (this.canvas.height / this.scale / ts) + 4;
+        // Optimization: Only calculate shadows within the light radius + padding
+        const rBuffer = Math.ceil(radius) + 2;
+        
+        const camStartCol = Math.floor(this.camera.x / ts) - 2;
+        const camEndCol = camStartCol + (this.canvas.width / this.scale / ts) + 4;
+        const camStartRow = Math.floor(this.camera.y / ts) - 2;
+        const camEndRow = camStartRow + (this.canvas.height / this.scale / ts) + 4;
+
+        const startCol = Math.max(camStartCol, Math.floor(px - rBuffer));
+        const endCol = Math.min(camEndCol, Math.ceil(px + rBuffer));
+        const startRow = Math.max(camStartRow, Math.floor(py - rBuffer));
+        const endRow = Math.min(camEndRow, Math.ceil(py + rBuffer));
 
         const startY = Math.max(0, Math.floor(startRow));
         const endY = Math.min(grid.length - 1, Math.floor(endRow));
@@ -810,15 +818,21 @@ export default class RenderSystem {
             const ty = Math.floor((wall.y * ts) - this.camera.y);
             sCtx.fillRect(tx, ty, wall.w * ts, ts);
         }
+
+        // C. Soften Shadow Edges (Gradient Mask)
+        // Fade shadows out as they approach the max radius to blend with ambient darkness
+        sCtx.globalCompositeOperation = 'destination-in';
+        const maskGrad = sCtx.createRadialGradient(sx, sy, screenRadius * 0.8, sx, sy, screenRadius);
+        maskGrad.addColorStop(0, 'rgba(0, 0, 0, 1)'); 
+        maskGrad.addColorStop(1, 'rgba(0, 0, 0, 0)'); 
+        
+        sCtx.fillStyle = maskGrad;
+        sCtx.fillRect(0, 0, w, h);
+
         sCtx.restore();
 
         // Apply Shadows to Main Canvas
         this.ctx.save();
-        // Optimization: Clip shadows to the light radius to prevent darkening the ambient area further
-        this.ctx.beginPath();
-        this.ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
-        this.ctx.clip();
-
         this.ctx.globalCompositeOperation = 'source-over';
         this.ctx.filter = 'none'; 
         this.ctx.globalAlpha = 0.9; 
@@ -847,7 +861,7 @@ export default class RenderSystem {
             const py = playerVisual.y;
             const sx = (px * ts) - this.camera.x + (ts * 0.5);
             const sy = (py * ts) - this.camera.y + (ts * 0.5);
-            const screenRadius = 10 * ts;
+            const screenRadius = this.lightRadius;
 
             // 2. Cut the "Light Hole"
             ctx.globalCompositeOperation = 'destination-out';
@@ -876,7 +890,7 @@ export default class RenderSystem {
             const py = playerVisual.y;
             const sx = (px * ts) - this.camera.x + (ts * 0.5);
             const sy = (py * ts) - this.camera.y + (ts * 0.5);
-            const screenRadius = 10 * ts;
+            const screenRadius = this.lightRadius;
 
             this.ctx.save();
             this.ctx.globalCompositeOperation = 'overlay';
