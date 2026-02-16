@@ -23,6 +23,17 @@ export default class AudioSystem {
 
     setAssetLoader(loader) {
         this.assetLoader = loader;
+
+        // Load Sword Sounds
+        this.assetLoader.loadAudio({
+            'sword1': './assets/audio/weapon/sword1.mp3',
+            'sword2': './assets/audio/weapon/sword2.mp3',
+            'sword3': './assets/audio/weapon/sword3.mp3',
+            'sword4': './assets/audio/weapon/sword4.mp3',
+            'sword5': './assets/audio/weapon/sword5.mp3',
+            'swing1': './assets/audio/weapon/swing1.mp3',
+            'swing2': './assets/audio/weapon/swing2.mp3'
+        });
     }
 
     resume() {
@@ -73,7 +84,6 @@ export default class AudioSystem {
         };
 
         const impactBuffer = await this.renderProceduralSound(0.4, createImpactSound);
-        this.buffers['attack'] = impactBuffer;
         this.buffers['hit'] = impactBuffer;
 
         // Grit Step
@@ -144,8 +154,26 @@ export default class AudioSystem {
             this.ctx.resume();
         }
 
+        let targetEffect = effect;
+        let volumeScale = 1.0;
+
+        // Randomize Attack Sound
+        if (effect === 'attack') {
+            const idx = Math.floor(Math.random() * 5) + 1;
+            targetEffect = `sword${idx}`;
+        } else if (effect === 'swing') {
+            const idx = Math.floor(Math.random() * 2) + 1;
+            targetEffect = `swing${idx}`;
+            volumeScale = 0.5;
+        }
+
         // Priority: 1. Generated Buffer, 2. Loaded Asset
-        const buffer = this.buffers[effect] || (this.assetLoader && this.assetLoader.getAudio(effect));
+        let buffer = this.buffers[targetEffect] || (this.assetLoader && this.assetLoader.getAudio(targetEffect));
+
+        // Fallback: If specific sword sound not loaded, use procedural 'attack'
+        if (!buffer && effect === 'attack') {
+            buffer = this.buffers['attack'];
+        }
 
         if (!buffer) return;
 
@@ -160,7 +188,7 @@ export default class AudioSystem {
         // Volume Randomization (0.8x to 1.2x)
         const gainNode = this.ctx.createGain();
         const volVariance = 0.8 + (Math.random() * 0.4);
-        gainNode.gain.value = volVariance;
+        gainNode.gain.value = volVariance * volumeScale;
 
         source.connect(gainNode);
         gainNode.connect(this.masterGain);

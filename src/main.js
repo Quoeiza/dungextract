@@ -1301,7 +1301,7 @@ class Game {
                         this.renderSystem.triggerAttack(entityId);
                         this.renderSystem.addEffect(tx, ty, 'slash');
                         this.peerClient.send({ type: 'EFFECT', payload: { x: tx, y: ty, type: 'slash' } });
-                        this.audioSystem.play('attack');
+                        this.audioSystem.play('swing');
                     }
                 }
             }
@@ -1430,7 +1430,7 @@ class Game {
                 this.renderSystem.triggerAttack(entityId);
                 this.renderSystem.addEffect(tx, ty, 'slash');
                 this.peerClient.send({ type: 'EFFECT', payload: { x: tx, y: ty, type: 'slash' } });
-                this.audioSystem.play('attack');
+                this.audioSystem.play('swing');
             }
         }
 
@@ -1534,7 +1534,7 @@ class Game {
                     this.renderSystem.triggerAttack(entityId);
                     this.renderSystem.addEffect(adjX, adjY, 'slash');
                     this.peerClient.send({ type: 'EFFECT', payload: { x: adjX, y: adjY, type: 'slash' } });
-                    this.audioSystem.play('attack');
+                    this.audioSystem.play('swing');
                 }
             }
         }
@@ -1559,7 +1559,7 @@ class Game {
                     // Whiff (Attack air)
                     this.renderSystem.addEffect(targetX, targetY, 'slash');
                     this.peerClient.send({ type: 'EFFECT', payload: { x: targetX, y: targetY, type: 'slash' } });
-                    this.audioSystem.play('attack');
+                    this.audioSystem.play('swing');
                 }
             }
         }

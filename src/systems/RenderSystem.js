@@ -1439,6 +1439,9 @@ export default class RenderSystem {
             visual.y = visual.startY + (visual.targetY - visual.startY) * t;
 
             this.updateCamera(visual.x, visual.y);
+        } else if (grid && grid.length > 0 && !this.camera.isReady) {
+            // Fallback: Center camera on map if player entity is missing/not yet spawned
+            this.updateCamera(grid[0].length / 2, grid.length / 2);
         }
 
         this.clear();
