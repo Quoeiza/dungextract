@@ -1,7 +1,8 @@
 export default class GridSystem {
     constructor(width, height, tileSize) {
-        this.width = width;
-        this.height = height;
+        // Cap the dungeon size to 100x100 to prevent performance issues
+        this.width = Math.min(width, 100);
+        this.height = Math.min(height, 100);
         this.tileSize = tileSize;
         this.grid = []; // 0: Floor, 1: Wall
         this.entities = new Map(); // Map<EntityID, {x, y, facing: {x, y}}>
