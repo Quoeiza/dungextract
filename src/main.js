@@ -69,10 +69,11 @@ class Game {
             window.innerHeight, 
             global.tileSize || 48
         );
-        this.renderSystem.setAssetLoader(this.assetLoader);
+        await this.renderSystem.setAssetLoader(this.assetLoader);
         this.renderSystem.setGridSystem(this.gridSystem);
 
         this.combatSystem = new CombatSystem(configs.enemies);
+        this.renderSystem.setCombatSystem(this.combatSystem);
         this.lootSystem = new LootSystem(configs.items);
         this.inputManager = new InputManager(configs.global);
         this.peerClient = new PeerClient(configs.net);
@@ -686,8 +687,8 @@ class Game {
                 }
             }
 
-            // Hit Flash
-            this.renderSystem.triggerHitFlash(targetId);
+            // Visual Feedback (Flash, Recoil, Blood)
+            this.renderSystem.triggerDamage(targetId, sourceId);
 
             // If Host, broadcast HP update to all clients
             if (this.state.isHost) {
@@ -704,6 +705,7 @@ class Game {
             const deathY = deathPos ? deathPos.y : 0;
 
             this.gridSystem.removeEntity(entityId);
+            this.renderSystem.triggerDeath(entityId);
             this.audioSystem.play('death');
             
             if (this.state.isHost) {
@@ -809,6 +811,7 @@ class Game {
                     }
                 } else if (data.type === 'ENTITY_DEATH') {
                     this.gridSystem.removeEntity(data.payload.id);
+                    this.renderSystem.triggerDeath(data.payload.id);
                     this.audioSystem.play('death');
                 } else if (data.type === 'GAME_OVER') {
                     this.showGameOver(data.payload.message);
@@ -2140,102 +2143,28 @@ class Game {
 
             if (attackIntent) {
                 this.handleInput(attackIntent);
-            } else {
-                if (this.state.actionBuffer && this.state.actionBuffer.type === 'ATTACK') {
-                    this.state.actionBuffer = null;
-                }
             }
-
-        }
-
-        // Client-side Action Buffering (Runs for everyone)
-        if (this.state.actionBuffer && Date.now() >= this.state.nextActionTime) {
-            this.executeAction(this.state.actionBuffer);
         }
 
         if (this.state.isHost) {
             this.updateAI(dt);
-            // Authoritative Update: Broadcast State
-            const snapshot = this.syncManager.serializeState(
-                this.gridSystem, 
-                this.combatSystem, 
-                this.lootSystem, 
-                this.state.projectiles,
-                this.state.gameTime
-            );
-            this.peerClient.send({ type: 'SNAPSHOT', payload: snapshot });
         }
     }
 
     render(alpha) {
-        if (!this.state.connected) return;
-
-        // Clients interpolate, Host uses raw state (or interpolates self for smoothness)
-        const state = this.state.isHost 
-            ? { 
-                entities: this.gridSystem.entities, 
-                loot: this.lootSystem.worldLoot, 
-                projectiles: this.state.projectiles,
-                gameTime: this.state.gameTime 
-              }
-            : this.syncManager.getInterpolatedState(Date.now());
+        if (!this.state.myId) return;
         
-        // Sync invisibility state from combat stats to grid entities for rendering (Host side)
-        if (this.state.isHost) {
-            for (const [id, pos] of this.gridSystem.entities) {
-                const stats = this.combatSystem.getStats(id);
-                if (stats) {
-                    pos.invisible = stats.invisible;
-                    pos.hp = stats.hp;
-                    pos.maxHp = stats.maxHp;
-                    pos.team = stats.team;
-                    pos.type = stats.type;
-                }
-            }
-        }
-
-        // Client Prediction Override:
-        // If we are a client, we want to render our LOCAL position (which is predicted),
-        // not the interpolated server position (which is in the past).
-        if (!this.state.isHost && this.gridSystem.entities.has(this.state.myId)) {
-            const localEntity = this.gridSystem.entities.get(this.state.myId);
-            const serverEntity = state.entities.get(this.state.myId);
-            
-            if (serverEntity) {
-                // Merge local position with server stats (HP, Type, etc)
-                // This ensures we see our own sprite/stats while moving smoothly
-                state.entities.set(this.state.myId, {
-                    ...serverEntity,
-                    x: localEntity.x,
-                    y: localEntity.y,
-                    facing: localEntity.facing
-                });
-            } else {
-                state.entities.set(this.state.myId, localEntity);
-            }
-        }
-
-        // Update Timer UI
-        const timerEl = document.getElementById('game-timer');
-        if (timerEl && state.gameTime !== undefined) {
-            const t = Math.max(0, Math.floor(state.gameTime));
-            const m = Math.floor(t / 60);
-            const s = t % 60;
-            timerEl.innerText = `${m}:${s.toString().padStart(2, '0')}`;
-        }
-
         this.renderSystem.render(
-            this.gridSystem.grid, 
-            state.entities,
-            state.loot,
-            state.projectiles,
+            this.gridSystem.grid,
+            this.gridSystem.entities,
+            this.lootSystem.worldLoot,
+            this.state.projectiles,
             this.state.interaction,
             this.state.myId
         );
     }
 }
 
-window.onload = () => {
-    const game = new Game();
-    game.init().catch(console.error);
-};
+const game = new Game();
+window.game = game;
+window.onload = () => game.init();

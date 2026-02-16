@@ -50,25 +50,34 @@ export default class RenderSystem {
         this.shadowMaskers = []; // Reuse array to reduce GC
         this.shadowPoints = []; // Reuse array for hull calculation
         this.hullBuffer = [];   // Reuse array for hull results
+
+        this.bloodParticles = [];
+        this.particlePool = [];
     }
 
     setAssetLoader(loader) {
         this.assetLoader = loader;
 
         // Load Actor Sprites
-        loader.loadImages({
+        const p1 = loader.loadImages({
             'knight': './assets/images/actors/rogue.png',
             'skelly': './assets/images/actors/skelly.png'
         }).catch(err => console.error("Failed to load actor assets:", err));
 
         // After setting the loader, immediately start loading the tilemap assets
-        this.tileMapManager.loadAssets(loader).catch(err => {
+        const p2 = this.tileMapManager.loadAssets(loader).catch(err => {
             console.error("Failed to load tilemap assets:", err);
         });
+
+        return Promise.all([p1, p2]);
     }
 
     setGridSystem(gridSystem) {
         this.gridSystem = gridSystem;
+    }
+
+    setCombatSystem(combatSystem) {
+        this.combatSystem = combatSystem;
     }
 
     resize() {
@@ -257,9 +266,43 @@ export default class RenderSystem {
         this.shake.startTime = Date.now();
     }
 
-    triggerHitFlash(id) {
+    triggerDamage(targetId, sourceId) {
+        const visual = this.visualEntities.get(targetId);
+        if (!visual) return;
+
+        visual.flashStart = Date.now();
+        visual.flashColor = '#ff0000';
+
+        // Calculate Recoil Vector
+        let dx = 0, dy = 0;
+        if (sourceId && this.gridSystem) {
+            const sourcePos = this.gridSystem.entities.get(sourceId);
+            if (sourcePos) {
+                dx = visual.x - sourcePos.x;
+                dy = visual.y - sourcePos.y;
+            }
+        }
+        // Fallback random recoil if no source or stacked
+        if (dx === 0 && dy === 0) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
+
+        const len = Math.sqrt(dx*dx + dy*dy) || 1;
+        const ndx = dx / len;
+        const ndy = dy / len;
+
+        visual.recoilX = ndx * 0.25; 
+        visual.recoilY = ndy * 0.25;
+        visual.recoilStart = Date.now();
+
+        // Spawn Blood Particles
+        for (let i = 0; i < 6; i++) {
+            this.spawnBloodParticle(visual.x, visual.y, ndx, ndy);
+        }
+    }
+
+    triggerHitFlash(id) { // Legacy support
         const visual = this.visualEntities.get(id);
         if (visual) visual.flashStart = Date.now();
+        if (visual) visual.flashColor = '#ffffff';
     }
 
     triggerAttack(id) {
@@ -277,6 +320,32 @@ export default class RenderSystem {
         }
     }
 
+    triggerDeath(id) {
+        const visual = this.visualEntities.get(id);
+        if (visual) {
+            visual.isDying = true;
+            visual.deathStart = Date.now();
+        }
+    }
+
+    spawnBloodParticle(x, y, dirX, dirY) {
+        const p = this.particlePool.pop() || { x:0, y:0, vx:0, vy:0, life:0, maxLife:0 };
+        p.x = x + (Math.random() - 0.5) * 0.2;
+        p.y = y + (Math.random() - 0.5) * 0.2;
+        
+        const speed = 0.05 + Math.random() * 0.15;
+        const spread = 0.8; // High spread
+        
+        // Mix directional velocity with random spread
+        p.vx = dirX * speed + (Math.random() - 0.5) * spread * speed;
+        p.vy = dirY * speed + (Math.random() - 0.5) * spread * speed;
+        
+        p.life = 1.0;
+        p.maxLife = 1.0;
+        p.size = 0.05 + Math.random() * 0.05;
+        this.bloodParticles.push(p);
+    }
+
     drawEntities(entities, localPlayerId, drawMode = 'ALL', ctx = this.ctx) {
         const now = Date.now();
         const localPlayer = entities.get(localPlayerId);
@@ -291,7 +360,11 @@ export default class RenderSystem {
         // Prune visuals that no longer exist
         for (const id of this.visualEntities.keys()) {
             if (!entities.has(id)) {
-                this.visualEntities.delete(id);
+                const visual = this.visualEntities.get(id);
+                // Keep dying entities until animation finishes (1s)
+                if (!visual.isDying || (now - visual.deathStart > 1000)) {
+                    this.visualEntities.delete(id);
+                }
             }
         }
 
@@ -312,7 +385,11 @@ export default class RenderSystem {
                     attackStart: 0, flashStart: 0,
                     bumpStart: 0, bumpDir: null,
                     lastFacingX: -1, // Default Left
-                    opacity: 0 // Start invisible and fade in
+                    opacity: 0, // Start invisible and fade in
+                    idlePhase: Math.random() * Math.PI * 2,
+                    recoilX: 0, recoilY: 0, recoilStart: 0,
+                    isDying: false, deathStart: 0,
+                    flashColor: '#ffffff'
                 };
                 this.visualEntities.set(id, visual);
             }
@@ -320,17 +397,20 @@ export default class RenderSystem {
             // Detect Position Change
             if (pos.x !== visual.targetX || pos.y !== visual.targetY) {
                 visual.startX = visual.x;
-                visual.startY = visual.y;
+                visual.startY = visual.y; 
                 visual.targetX = pos.x;
                 visual.targetY = pos.y;
                 visual.moveStartTime = now;
             }
 
             // Linear Interpolation over 250ms
-            const moveDuration = 250;
-            const t = Math.min(1, (now - visual.moveStartTime) / moveDuration);
-            visual.x = visual.startX + (visual.targetX - visual.startX) * t;
-            visual.y = visual.startY + (visual.targetY - visual.startY) * t;
+            // Stop updating position if dying to prevent snapping
+            if (!visual.isDying) {
+                const moveDuration = 250;
+                const t = Math.min(1, (now - visual.moveStartTime) / moveDuration);
+                visual.x = visual.startX + (visual.targetX - visual.startX) * t;
+                visual.y = visual.startY + (visual.targetY - visual.startY) * t;
+            }
 
             // Optimization: View Frustum Culling
             // If entity is completely off-screen, skip LOS check and rendering
@@ -368,6 +448,23 @@ export default class RenderSystem {
             // Hop Animation (Based on fractional grid position)
             // We use the fractional part of the visual position to determine the hop arc
             const hopOffset = -Math.sin(Math.PI * Math.max(Math.abs(visual.x % 1), Math.abs(visual.y % 1))) * (this.tileSize * 0.125);
+            
+            // Idle Animation (Breathing & Swaying)
+            let scaleY = 1;
+            let rotation = 0;
+            if (!visual.isDying) {
+                scaleY = 1 + Math.sin(now * 0.005 + visual.idlePhase) * 0.03;
+                rotation = Math.sin(now * 0.003 + visual.idlePhase) * 0.02;
+            }
+
+            // Recoil Offset
+            let recoilOffX = 0;
+            let recoilOffY = 0;
+            if (now - visual.recoilStart < 200) {
+                const t = 1 - ((now - visual.recoilStart) / 200);
+                recoilOffX = visual.recoilX * t * this.tileSize;
+                recoilOffY = visual.recoilY * t * this.tileSize;
+            }
 
             // Stealth Check
             let alpha = visual.opacity;
@@ -401,8 +498,8 @@ export default class RenderSystem {
                 }
             }
 
-            const screenX = Math.floor((visual.x * this.tileSize) - Math.floor(this.camera.x) + offsetX + bumpX);
-            const screenY = Math.floor((visual.y * this.tileSize) - Math.floor(this.camera.y) + offsetY + hopOffset + bumpY);
+            const screenX = Math.floor((visual.x * this.tileSize) - Math.floor(this.camera.x) + offsetX + bumpX + recoilOffX);
+            const screenY = Math.floor((visual.y * this.tileSize) - Math.floor(this.camera.y) + offsetY + hopOffset + bumpY + recoilOffY);
 
             // Health Bar (Curved under sprite)
             if (pos.hp !== undefined && pos.maxHp !== undefined && pos.hp > 0) {
@@ -457,9 +554,15 @@ export default class RenderSystem {
             ctx.fill();
 
             // Determine Sprite
+            let type = pos.type;
+            if (!type && this.combatSystem) {
+                const stats = this.combatSystem.getStats(id);
+                if (stats) type = stats.type;
+            }
+
             let spriteKey = null;
-            if (pos.type === 'player') spriteKey = 'knight';
-            if (pos.type === 'skeleton') spriteKey = 'skelly';
+            if (type === 'player') spriteKey = 'knight';
+            if (type === 'skeleton') spriteKey = 'skelly';
             
             const img = this.assetLoader ? this.assetLoader.getImage(spriteKey) : null;
 
@@ -476,11 +579,11 @@ export default class RenderSystem {
                 const centerX = screenX + (this.tileSize * 0.5);
                 const centerY = screenY + (this.tileSize * 0.5);
 
-                ctx.translate(centerX, centerY);
+                ctx.translate(centerX, centerY + (this.tileSize / 2)); // Pivot at feet
 
                 const spriteW = img.width;
                 const spriteH = img.height;
-                let drawX = Math.floor(-spriteW / 2);
+                let drawX = -spriteW / 2;
 
                 // Sprite defaults to Left. Flip if facing Right.
                 if (facingX > 0) {
@@ -488,18 +591,47 @@ export default class RenderSystem {
                     drawX -= 1; // Fix 1px offset when flipped
                 }
 
-                
-                // Calculate Y offset: Bottom of sprite aligns with bottom of tile (+tileSize/2 relative to center)
-                const drawY = (this.tileSize / 2) - spriteH;
-                ctx.drawImage(img, drawX, Math.floor(drawY), spriteW, spriteH);
+                ctx.rotate(rotation);
+                ctx.scale(1, scaleY);
+
+                const drawY = -spriteH; // Draw upwards from feet
+
+                // Flash Effect (Red Tint) - Apply filter before draw
+                const isFlashing = (now - visual.flashStart < 100);
+                if (isFlashing) {
+                    // Subtle red tint using CSS filters on the context
+                    ctx.filter = 'sepia(1) hue-rotate(-50deg) saturate(3) brightness(0.8)';
+                }
+
+                // Dissolve Logic (Top-Down)
+                if (visual.isDying) {
+                    const progress = (now - visual.deathStart) / 1000;
+                    if (progress < 1) {
+                        const cropH = spriteH * progress;
+                        // Draw only the bottom part
+                        ctx.drawImage(img, 
+                            0, cropH, spriteW, spriteH - cropH, 
+                            drawX, drawY + cropH, spriteW, spriteH - cropH
+                        );
+                    }
+                } else {
+                    // Normal Draw
+                    ctx.drawImage(img, drawX, drawY, spriteW, spriteH);
+                }
+
+                if (isFlashing) {
+                    ctx.filter = 'none';
+                }
+
                 ctx.restore();
             } else {
                 // --- Fallback Procedural Rendering ---
 
                 // Body
                 const isMe = (id === localPlayerId);
-                const isFlashing = (now - visual.flashStart < 100); // 100ms flash
+                const isFlashing = (now - visual.flashStart < 100);
 
+                // Note: Fallback shapes don't support the new dissolve/idle effects fully for brevity
                 if (isFlashing) {
                     ctx.fillStyle = '#FFFFFF';
                 } else {
@@ -617,6 +749,31 @@ export default class RenderSystem {
                 this.ctx.strokeRect(screenX + (this.tileSize * 0.125), screenY + (this.tileSize * 0.25), this.tileSize - (this.tileSize * 0.25), this.tileSize - (this.tileSize * 0.375));
             }
         });
+    }
+
+    updateAndDrawParticles() {
+        const ts = this.tileSize;
+        const dt = 16 / 1000; // Approx dt
+        
+        for (let i = this.bloodParticles.length - 1; i >= 0; i--) {
+            const p = this.bloodParticles[i];
+            p.life -= dt;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vx *= 0.9; // Drag
+            p.vy *= 0.9;
+
+            if (p.life <= 0) {
+                this.particlePool.push(p);
+                this.bloodParticles.splice(i, 1);
+                continue;
+            }
+
+            const sx = (p.x * ts) - this.camera.x;
+            const sy = (p.y * ts) - this.camera.y;
+            this.ctx.fillStyle = '#800';
+            this.ctx.fillRect(sx, sy, ts * p.size, ts * p.size);
+        }
     }
 
     addEffect(x, y, type) {
@@ -958,13 +1115,28 @@ export default class RenderSystem {
                         }
                     }
 
-                    const tx = Math.floor((visual.x * ts) - Math.floor(this.camera.x) + offsetX + bumpX);
-                    const ty = Math.floor((visual.y * ts) - Math.floor(this.camera.y) + offsetY + bumpY);
+                    // Recoil Offset
+                    let recoilOffX = 0;
+                    let recoilOffY = 0;
+                    if (now - visual.recoilStart < 200) {
+                        const t = 1 - ((now - visual.recoilStart) / 200);
+                        recoilOffX = visual.recoilX * t * ts;
+                        recoilOffY = visual.recoilY * t * ts;
+                    }
+
+                    const tx = Math.floor((visual.x * ts) - Math.floor(this.camera.x) + offsetX + bumpX + recoilOffX);
+                    const ty = Math.floor((visual.y * ts) - Math.floor(this.camera.y) + offsetY + bumpY + recoilOffY);
                     
                     // Determine Sprite
+                    let type = pos.type;
+                    if (!type && this.combatSystem) {
+                        const stats = this.combatSystem.getStats(id);
+                        if (stats) type = stats.type;
+                    }
+
                     let spriteKey = null;
-                    if (pos.type === 'player') spriteKey = 'knight';
-                    if (pos.type === 'skeleton') spriteKey = 'skelly';
+                    if (type === 'player') spriteKey = 'knight';
+                    if (type === 'skeleton') spriteKey = 'skelly';
                     
                     const img = this.assetLoader ? this.assetLoader.getImage(spriteKey) : null;
 
@@ -973,10 +1145,19 @@ export default class RenderSystem {
 
                     if (img) {
                         const hopOffset = -Math.sin(Math.PI * Math.max(Math.abs(visual.x % 1), Math.abs(visual.y % 1))) * (ts * 0.125);
+                        
+                        // Idle Animation (Breathing & Swaying)
+                        let scaleY = 1;
+                        let rotation = 0;
+                        if (!visual.isDying) {
+                            scaleY = 1 + Math.sin(now * 0.005 + visual.idlePhase) * 0.03;
+                            rotation = Math.sin(now * 0.003 + visual.idlePhase) * 0.02;
+                        }
+
                         const centerX = tx + (ts * 0.5);
                         const centerY = ty + (ts * 0.5) + hopOffset;
 
-                        sCtx.translate(centerX, centerY);
+                        sCtx.translate(centerX, centerY + (ts / 2)); // Pivot at feet
 
                         const facingX = visual.lastFacingX !== undefined ? visual.lastFacingX : (pos.facing ? pos.facing.x : -1);
                         const spriteW = img.width;
@@ -988,7 +1169,10 @@ export default class RenderSystem {
                             drawX -= 1; // Fix 1px offset when flipped
                         }
 
-                        const drawY = (ts / 2) - spriteH;
+                        sCtx.rotate(rotation);
+                        sCtx.scale(1, scaleY);
+
+                        const drawY = -spriteH; // Draw upwards from feet
                         
                         sCtx.drawImage(img, drawX, Math.floor(drawY), spriteW, spriteH);
                     } else {
@@ -1197,7 +1381,11 @@ export default class RenderSystem {
                     attackStart: 0, flashStart: 0,
                     bumpStart: 0, bumpDir: null,
                     lastFacingX: -1,
-                    opacity: 1
+                    opacity: 1,
+                    idlePhase: Math.random() * Math.PI * 2,
+                    recoilX: 0, recoilY: 0, recoilStart: 0,
+                    isDying: false, deathStart: 0,
+                    flashColor: '#ffffff'
                 };
                 this.visualEntities.set(localPlayerId, visual);
             }
@@ -1241,6 +1429,7 @@ export default class RenderSystem {
         // 2. Draw Entities & Projectiles (Before Roofs/Ambient)
         this.drawProjectiles(projectiles);
         this.drawEntities(entities, localPlayerId, 'REMOTE');
+        this.updateAndDrawParticles();
         this.drawEffects();
         
         // 3. Draw Roofs (Occludes entities)
