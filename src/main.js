@@ -940,6 +940,10 @@ class Game {
         const gridX = Math.floor(((data.x / scale) + cam.x) / ts);
         const gridY = Math.floor(((data.y / scale) + cam.y) / ts);
 
+        this.processClickLogic(gridX, gridY, data.shift);
+    }
+
+    processClickLogic(gridX, gridY, shift) {
         const pos = this.gridSystem.entities.get(this.state.myId);
         if (!pos) return;
 
@@ -951,7 +955,7 @@ class Game {
         const isHostile = targetId && targetId !== this.state.myId;
 
         // Melee Chase Logic
-        if (isHostile && !data.shift) {
+        if (isHostile && !shift) {
             const equip = this.lootSystem.getEquipment(this.state.myId);
             const weaponId = equip.weapon;
             const config = weaponId ? this.lootSystem.getItemConfig(weaponId) : null;
@@ -967,19 +971,24 @@ class Game {
                         this.state.autoPath = path;
                         this.state.chaseTargetId = targetId;
                     }
-                    return; // Consume click
+                    return; 
                 }
             }
         }
 
         // Determine if this is an Attack Command
         // Shift forces attack. Clicking a hostile entity implies attack.
-        const isAttack = data.shift || isHostile;
+        const isAttack = shift || isHostile;
 
         if (isAttack) {
-            // Attack logic is now handled via polling in update() to support holding and global timer buffering
+            // Attack logic is handled via polling in update() to support holding
             this.state.autoPath = [];
             this.state.chaseTargetId = null;
+            
+            // Generate Attack Intent directly here
+            // We need a projId for prediction consistency if ranged
+            const projId = `proj_${Date.now()}_${this.state.myId}`;
+            this.handleInput({ type: 'TARGET_ACTION', x: gridX, y: gridY, projId: projId });
             return; 
         }
 
@@ -995,7 +1004,12 @@ class Game {
         } else {
             // Terrain: Pathfind
             const path = this.gridSystem.findPath(pos.x, pos.y, gridX, gridY);
-            if (path) this.state.autoPath = path;
+            if (path) {
+                this.state.autoPath = path;
+            } else {
+                // Invalid path (e.g. wall), stop moving
+                this.state.autoPath = [];
+            }
         }
     }
 
@@ -1960,6 +1974,25 @@ class Game {
 
         // Poll Input (Solves OS key repeat delay)
         if (this.state.myId) {
+            const mouse = this.inputManager.getMouseState();
+            
+            // Continuous Movement/Action (Left Click Hold)
+            if (mouse.left) {
+                const now = Date.now();
+                // Throttle pathfinding to every 100ms to prevent performance tanking
+                if (!this.state.lastMousePathTime || now - this.state.lastMousePathTime > 100) {
+                    this.state.lastMousePathTime = now;
+                    
+                    const cam = this.renderSystem.camera;
+                    const ts = this.config.global.tileSize || 48;
+                    const scale = this.renderSystem.scale || 1;
+                    const gridX = Math.floor(((mouse.x / scale) + cam.x) / ts);
+                    const gridY = Math.floor(((mouse.y / scale) + cam.y) / ts);
+                    
+                    this.processClickLogic(gridX, gridY, mouse.shift);
+                }
+            }
+
             const moveIntent = this.inputManager.getMovementIntent();
             const attackIntent = this.inputManager.getAttackIntent();
             
@@ -1978,6 +2011,9 @@ class Game {
                         this.handleInput({ type: 'MOVE', direction: { x: Math.sign(dx), y: Math.sign(dy) } });
                     }
                 }
+            } else if (this.state.chaseTargetId && !moveIntent) {
+                // Path finished, check if we can attack
+                const targetPos = this.gridSystem.entities.get(this.state.chaseTargetId);
             } else if (this.state.chaseTargetId && !moveIntent) {
                 // Path finished, check if we can attack
                 const targetPos = this.gridSystem.entities.get(this.state.chaseTargetId);
@@ -2018,31 +2054,6 @@ class Game {
                 }
             }
 
-            // Poll Mouse for Continuous Attacks
-            const mouse = this.inputManager.getMouseState();
-            if (mouse.left && this.state.autoPath.length === 0) {
-                const cam = this.renderSystem.camera;
-                const ts = this.config.global.tileSize || 48;
-                const scale = this.renderSystem.scale || 1;
-                const gridX = Math.floor(((mouse.x / scale) + cam.x) / ts);
-                const gridY = Math.floor(((mouse.y / scale) + cam.y) / ts);
-                
-                const targetId = this.gridSystem.getEntityAt(gridX, gridY);
-                const isHostile = targetId && targetId !== this.state.myId;
-                
-                if (mouse.shift || isHostile) {
-                    // Generate a deterministic ID for projectiles if needed for prediction
-                    const projId = `proj_${Date.now()}_${this.state.myId}`;
-                    
-                    const intent = { 
-                        type: 'TARGET_ACTION', 
-                        x: gridX, 
-                        y: gridY,
-                        projId: projId
-                    };
-                    this.handleInput(intent);
-                }
-            }
         }
 
         // Client-side Action Buffering (Runs for everyone)

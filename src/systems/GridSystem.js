@@ -514,6 +514,9 @@ export default class GridSystem {
     }
 
     findPath(startX, startY, endX, endY) {
+        // Check if target is walkable to prevent infinite/exhaustion search on unreachable tiles
+        if (!this.isWalkable(endX, endY)) return null;
+
         // Simple A* Implementation
         const startNode = { x: startX, y: startY, g: 0, h: 0, f: 0, parent: null };
         const openList = [startNode];
