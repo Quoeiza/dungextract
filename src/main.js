@@ -943,12 +943,21 @@ class Game {
         this.processClickLogic(gridX, gridY, data.shift);
     }
 
-    processClickLogic(gridX, gridY, shift) {
+    processClickLogic(gridX, gridY, shift, isContinuous = false) {
         const pos = this.gridSystem.entities.get(this.state.myId);
         if (!pos) return;
 
-        const targetId = this.gridSystem.getEntityAt(gridX, gridY);
+        let targetId = this.gridSystem.getEntityAt(gridX, gridY);
         const loot = this.lootSystem.getLootAt(gridX, gridY);
+
+        // Smart Targeting (Continuous Hold Only)
+        // Scans a radius around the cursor to lock onto enemies, making chasing easier.
+        if (isContinuous) {
+            const bestId = this.findBestTarget(gridX, gridY, 3); // 3 Tile Radius
+            if (bestId) {
+                targetId = bestId;
+            }
+        }
 
         // Determine if this is an Attack Command
         // Shift forces attack. Clicking a hostile entity implies attack.
@@ -1017,6 +1026,43 @@ class Game {
                 this.state.autoPath = [];
             }
         }
+    }
+
+    findBestTarget(cursorX, cursorY, radius) {
+        const myStats = this.combatSystem.getStats(this.state.myId);
+        if (!myStats) return null;
+
+        let bestId = null;
+        let minDst = radius * radius; // Squared distance comparison
+
+        for (const [id, pos] of this.gridSystem.entities) {
+            if (id === this.state.myId) continue;
+
+            const stats = this.combatSystem.getStats(id);
+            if (!stats) continue;
+
+            // Hostility Check
+            let isHostile = false;
+            if (myStats.team === 'monster') {
+                // Monsters only attack players
+                if (stats.team === 'player') isHostile = true;
+            } else {
+                // Players attack monsters and other players (PvP)
+                if (stats.team === 'monster' || stats.team === 'player') isHostile = true;
+            }
+            
+            if (!isHostile) continue;
+
+            const dx = pos.x - cursorX;
+            const dy = pos.y - cursorY;
+            const dstSq = dx*dx + dy*dy;
+
+            if (dstSq <= minDst) {
+                minDst = dstSq;
+                bestId = id;
+            }
+        }
+        return bestId;
     }
 
     getStraightPath(x0, y0, x1, y1) {
@@ -2024,7 +2070,7 @@ class Game {
                     const gridX = Math.floor(((mouse.x / scale) + cam.x) / ts);
                     const gridY = Math.floor(((mouse.y / scale) + cam.y) / ts);
                     
-                    this.processClickLogic(gridX, gridY, mouse.shift);
+                    this.processClickLogic(gridX, gridY, mouse.shift, true);
                 }
             }
 
