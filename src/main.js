@@ -79,6 +79,7 @@ class Game {
         this.peerClient = new PeerClient(configs.net);
         this.syncManager = new SyncManager(configs.global);
         this.audioSystem = new AudioSystem();
+        this.audioSystem.setAssetLoader(this.assetLoader);
         
         // 5. Check for Auto-Join URL
         // Check URL params for ?join=HOST_ID

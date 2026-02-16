@@ -4,10 +4,25 @@ export default class AudioSystem {
         if (AudioCtor) {
             this.ctx = new AudioCtor();
             this.enabled = true;
+            
+            // Master Gain for global volume control
+            this.masterGain = this.ctx.createGain();
+            this.masterGain.gain.value = 0.4; // Default to 40% to prevent clipping
+            this.masterGain.connect(this.ctx.destination);
+
+            this.buffers = {};
+            this.assetLoader = null;
+
+            // Generate high-fidelity procedural assets immediately
+            this.generateGrimdarkAssets();
         } else {
             console.warn("AudioContext not supported");
             this.enabled = false;
         }
+    }
+
+    setAssetLoader(loader) {
+        this.assetLoader = loader;
     }
 
     resume() {
@@ -16,52 +31,140 @@ export default class AudioSystem {
         }
     }
 
-    playTone(freq, type, duration, vol = 0.1) {
+    async generateGrimdarkAssets() {
         if (!this.enabled) return;
-        try {
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            osc.type = type;
-            osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-            gain.gain.setValueAtTime(vol, this.ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
-            osc.connect(gain);
-            gain.connect(this.ctx.destination);
+        
+        // Consolidated Impact Sound (Used for Attack and Hit)
+        const createImpactSound = (ctx) => {
+            // 1. Low Thud (Kick)
+            const osc = ctx.createOscillator();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(120, 0);
+            osc.frequency.exponentialRampToValueAtTime(30, 0.2);
+            
+            const oscGain = ctx.createGain();
+            oscGain.gain.setValueAtTime(1, 0);
+            oscGain.gain.exponentialRampToValueAtTime(0.01, 0.3);
+            osc.connect(oscGain);
+            oscGain.connect(ctx.destination);
+
+            // 2. Wet Squelch (Filtered Noise)
+            const noise = ctx.createBufferSource();
+            const nBuf = ctx.createBuffer(1, ctx.length, ctx.sampleRate);
+            const data = nBuf.getChannelData(0);
+            for (let i = 0; i < ctx.length; i++) data[i] = Math.random() * 2 - 1;
+            noise.buffer = nBuf;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(1200, 0);
+            filter.frequency.linearRampToValueAtTime(200, 0.2);
+
+            const nGain = ctx.createGain();
+            nGain.gain.setValueAtTime(0.8, 0);
+            nGain.gain.exponentialRampToValueAtTime(0.01, 0.25);
+
+            noise.connect(filter);
+            filter.connect(nGain);
+            nGain.connect(ctx.destination);
+
             osc.start();
-            osc.stop(this.ctx.currentTime + duration);
-        } catch (e) {
-            console.error("Audio Error", e);
-        }
+            noise.start();
+        };
+
+        const impactBuffer = await this.renderProceduralSound(0.4, createImpactSound);
+        this.buffers['attack'] = impactBuffer;
+        this.buffers['hit'] = impactBuffer;
+
+        // Grit Step
+        this.buffers['step'] = await this.renderProceduralSound(0.1, (ctx) => {
+            // Legacy Sine Step (Restored)
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(50, 0);
+
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0.05, 0);
+            gain.gain.exponentialRampToValueAtTime(0.01, 0.05);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+        });
+
+        // Pickup Chime
+        this.buffers['pickup'] = await this.renderProceduralSound(0.5, (ctx) => {
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, 0);
+            osc.frequency.exponentialRampToValueAtTime(1200, 0.1);
+
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0.3, 0);
+            gain.gain.exponentialRampToValueAtTime(0.01, 0.5);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+        });
+
+        // Bump Thud
+        this.buffers['bump'] = await this.renderProceduralSound(0.1, (ctx) => {
+            const osc = ctx.createOscillator();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(80, 0);
+            osc.frequency.exponentialRampToValueAtTime(10, 0.1);
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 200;
+
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0.5, 0);
+            gain.gain.exponentialRampToValueAtTime(0.01, 0.1);
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+        });
+    }
+
+    async renderProceduralSound(duration, setupFn) {
+        // OfflineAudioContext allows us to render complex audio graphs into a static buffer
+        // This provides "asset-like" performance with zero network load.
+        const offlineCtx = new OfflineAudioContext(1, 44100 * duration, 44100);
+        setupFn(offlineCtx);
+        return await offlineCtx.startRendering();
     }
 
     play(effect) {
-        // Resume context if suspended (browser autoplay policy)
+        if (!this.enabled) return;
         if (this.enabled && this.ctx.state === 'suspended') {
             this.ctx.resume();
         }
 
-        // Randomize pitch slightly (±10%) to reduce auditory fatigue
-        const variance = 0.9 + Math.random() * 0.2;
+        // Priority: 1. Generated Buffer, 2. Loaded Asset
+        const buffer = this.buffers[effect] || (this.assetLoader && this.assetLoader.getAudio(effect));
 
-        switch(effect) {
-            case 'attack':
-                this.playTone(150 * variance, 'sawtooth', 0.1, 0.05);
-                break;
-            case 'hit':
-                this.playTone(100 * variance, 'square', 0.1, 0.05);
-                break;
-            case 'step':
-                this.playTone(50 * variance, 'sine', 0.05, 0.02);
-                break;
-            case 'pickup':
-                this.playTone(600 * variance, 'sine', 0.1, 0.05);
-                break;
-            case 'death':
-                this.playTone(50 * variance, 'sawtooth', 0.5, 0.1);
-                break;
-            case 'bump':
-                this.playTone(80 * variance, 'triangle', 0.05, 0.1);
-                break;
-        }
+        if (!buffer) return;
+
+        const source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+
+        // Pitch Randomization (±200 cents / ±2 semitones)
+        // This prevents the "machine gun" effect on repeated sounds
+        const detune = (Math.random() * 400) - 200; 
+        source.detune.value = detune;
+
+        // Volume Randomization (0.8x to 1.2x)
+        const gainNode = this.ctx.createGain();
+        const volVariance = 0.8 + (Math.random() * 0.4);
+        gainNode.gain.value = volVariance;
+
+        source.connect(gainNode);
+        gainNode.connect(this.masterGain);
+        
+        source.start();
     }
 }

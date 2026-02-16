@@ -2,6 +2,7 @@ export default class AssetLoader {
     constructor() {
         this.images = {};
         this.audio = {};
+        this.audioContext = null; // Lazy init
     }
 
     async loadConfig(path) {
@@ -35,8 +36,34 @@ export default class AssetLoader {
         return Promise.all(promises);
     }
 
+    async loadAudio(audioLists) {
+        const promises = [];
+        // We need a context to decode, but we don't want to start the main AudioContext yet.
+        // We use a temporary one or check for window.
+        const AudioCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtor) return Promise.resolve();
+        
+        if (!this.audioContext) this.audioContext = new AudioCtor();
+
+        for (const [name, src] of Object.entries(audioLists)) {
+            promises.push(fetch(src)
+                .then(response => response.arrayBuffer())
+                .then(arrayBuffer => this.audioContext.decodeAudioData(arrayBuffer))
+                .then(audioBuffer => {
+                    this.audio[name] = audioBuffer;
+                })
+                .catch(e => console.warn(`Failed to load audio: ${src}`, e))
+            );
+        }
+        return Promise.all(promises);
+    }
+
     getImage(name) {
         return this.images[name] || null; // RenderSystem handles null by drawing a colored rect
+    }
+
+    getAudio(name) {
+        return this.audio[name] || null;
     }
 
     async loadAll() {
