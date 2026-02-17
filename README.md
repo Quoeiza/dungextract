@@ -8,4 +8,4 @@
 
 ## 🚀 How to Play
 
-1.  **Visit:** https://quoeiza.github.io/dungextract/
+1.  **Visit:** https://quoeiza.github.io/coldcoin/
