@@ -978,12 +978,13 @@ export default class RenderSystem {
     // Helper to recycle shadow segment objects
     getShadowSegment(x, y) {
         if (this.segmentPoolIndex >= this.segmentPool.length) {
-            this.segmentPool.push({ x, y, w: 1 });
+            this.segmentPool.push({ x, y, w: 1, h: 1 });
         }
         const seg = this.segmentPool[this.segmentPoolIndex++];
         seg.x = x;
         seg.y = y;
         seg.w = 1;
+        seg.h = 1;
         return seg;
     }
 
@@ -1047,53 +1048,61 @@ export default class RenderSystem {
         const startX = Math.max(0, Math.floor(startCol));
         const endX = Math.min(grid[0].length - 1, Math.floor(endCol));
 
-        for (let y = startY; y <= endY; y++) {
-            let casterSeg = null;
-            let maskerSeg = null;
+        // --- GREEDY MESHING ALGORITHM ---
+        // Merges adjacent tiles into larger rectangles to reduce draw calls and eliminate light leaks.
+        const mesh = (targetArray, isTypeFunc) => {
+            const visited = new Set();
+            for (let y = startY; y <= endY; y++) {
+                for (let x = startX; x <= endX; x++) {
+                    const key = (y << 16) | x;
+                    if (visited.has(key)) continue;
 
-            for (let x = startX; x <= endX; x++) {
-                // --- LINKED SYSTEM: TileMapManager Classification ---
-                const isWall = this.tileMapManager.getTileVal(grid, x, y) === 1;
-                const isFrontFace = this.tileMapManager.isFrontFace(grid, x, y);
-                const isVoid = this.tileMapManager.shouldDrawVoid(grid, x, y);
+                    if (isTypeFunc(x, y)) {
+                        // 1. Find Width
+                        let width = 1;
+                        while (x + width <= endX && isTypeFunc(x + width, y) && !visited.has((y << 16) | (x + width))) {
+                            width++;
+                        }
 
-                // 1. Maskers: Walls, Faces, and Voids/Roofs.
-                // These are "above" the floor and should not receive floor shadows.
-                if (isWall || isVoid) {
-                    if (maskerSeg) {
-                        maskerSeg.w++;
-                    } else {
-                        maskerSeg = this.getShadowSegment(x, y);
-                    }
-                } else {
-                    if (maskerSeg) {
-                        this.shadowMaskers.push(maskerSeg);
-                        maskerSeg = null;
-                    }
-                }
+                        // 2. Find Height
+                        let height = 1;
+                        let canExtend = true;
+                        while (y + height <= endY && canExtend) {
+                            for (let k = 0; k < width; k++) {
+                                const checkX = x + k;
+                                const checkY = y + height;
+                                const checkKey = (checkY << 16) | checkX;
+                                if (!isTypeFunc(checkX, checkY) || visited.has(checkKey)) {
+                                    canExtend = false;
+                                    break;
+                                }
+                            }
+                            if (canExtend) height++;
+                        }
 
-                // 2. Casters: Only Colliding Walls cast shadows.
-                // We use GridSystem to determine collision, ensuring visual consistency with physics.
-                // This excludes "Roof Rims" (which are walls but walkable) from casting shadows.
-                const isColliding = this.gridSystem ? !this.gridSystem.isWalkable(x, y) : isWall;
+                        // 3. Add Segment
+                        const seg = this.getShadowSegment(x, y);
+                        seg.w = width;
+                        seg.h = height;
+                        targetArray.push(seg);
 
-                if (isColliding) {
-                    if (casterSeg) {
-                        casterSeg.w++;
-                    } else {
-                        casterSeg = this.getShadowSegment(x, y);
-                    }
-                } else {
-                    if (casterSeg) {
-                        this.shadowCasters.push(casterSeg);
-                        casterSeg = null;
+                        // 4. Mark Visited
+                        for (let iy = 0; iy < height; iy++) {
+                            for (let ix = 0; ix < width; ix++) {
+                                visited.add(((y + iy) << 16) | (x + ix));
+                            }
+                        }
                     }
                 }
             }
-            // Flush segments at end of row
-            if (maskerSeg) this.shadowMaskers.push(maskerSeg);
-            if (casterSeg) this.shadowCasters.push(casterSeg);
-        }
+        };
+
+        // Predicates for Meshing
+        const isCaster = (x, y) => this.gridSystem ? !this.gridSystem.isWalkable(x, y) : (this.tileMapManager.getTileVal(grid, x, y) === 1);
+        const isMasker = (x, y) => (this.tileMapManager.getTileVal(grid, x, y) === 1) || this.tileMapManager.shouldDrawVoid(grid, x, y);
+
+        mesh(this.shadowCasters, isCaster);
+        mesh(this.shadowMaskers, isMasker);
 
         sCtx.save();
         
@@ -1109,9 +1118,9 @@ export default class RenderSystem {
             // This prevents the "lighter edge" artifact where the blurred shadow volume meets the wall.
             const wx = (wall.x * ts) - this.camera.x;
             const wy = (wall.y * ts) - this.camera.y;
-            sCtx.fillRect(wx, wy, wall.w * ts, ts);
+            sCtx.fillRect(wx, wy, wall.w * ts, wall.h * ts);
 
-            this.drawShadowVolume(sCtx, wall.x, wall.y, wall.w, 1, px, py, radius, lOffX, lOffY);
+            this.drawShadowVolume(sCtx, wall.x, wall.y, wall.w, wall.h, px, py, radius, lOffX, lOffY);
         }
         sCtx.filter = 'none'; // Reset filter for sharp masking
 
@@ -1122,7 +1131,7 @@ export default class RenderSystem {
         for (const wall of this.shadowMaskers) {
             const tx = Math.floor((wall.x * ts) - this.camera.x);
             const ty = Math.floor((wall.y * ts) - this.camera.y);
-            sCtx.fillRect(tx, ty, wall.w * ts, ts);
+            sCtx.fillRect(tx, ty, wall.w * ts, wall.h * ts);
         }
 
         // C. Mask out Entities (Prevent shadows on sprites)
