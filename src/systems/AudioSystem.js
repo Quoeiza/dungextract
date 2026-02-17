@@ -175,11 +175,6 @@ export default class AudioSystem {
         // Priority: 1. Generated Buffer, 2. Loaded Asset
         let buffer = this.buffers[targetEffect] || (this.assetLoader && this.assetLoader.getAudio(targetEffect));
 
-        // Fallback: If specific sword sound not loaded, use procedural 'attack'
-        if (!buffer && effect === 'attack') {
-            buffer = this.buffers['attack'];
-        }
-
         if (!buffer) return;
 
         const source = this.ctx.createBufferSource();

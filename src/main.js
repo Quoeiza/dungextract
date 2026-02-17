@@ -360,7 +360,8 @@ class Game {
             }
         }
         this.renderInventory();
-        this.audioSystem.play('pickup'
+        this.audioSystem.play('pickup');
+    }
 
     handleEquipItem(itemId, slot) {
         const success = this.lootSystem.equipItem(this.state.myId, itemId, slot);
@@ -606,7 +607,7 @@ class Game {
 
             // Play sound for specific player
             if (entityId === this.state.myId) {
-                this.audioSystem.play('pickup',
+                this.audioSystem.play('pickup');
                 this.updateQuickSlotUI();
                 const goldText = result.gold > 0 ? ` + ${result.gold}g` : '';
                 const itemName = this.getItemName(result.itemId);
@@ -657,7 +658,7 @@ class Game {
                 this.renderSystem.triggerShake(5, 200); // Screen shake on damage
                 this.audioSystem.play('hit', this.gridSystem.entities.get(targetId).x, this.gridSystem.entities.get(targetId).y);
             }
-s for local player
+            // Stats for local player
             if (amount > 0 && (targetId === this.state.myId || sourceId === this.state.myId)) {
                 const tStats = this.combatSystem.getStats(targetId);
                 const sStats = sourceId ? this.combatSystem.getStats(sourceId) : null;
@@ -708,9 +709,10 @@ s for local player
             this.audioSystem.play('death', deathX, deathY);
             
             if (this.state.isHost) {
-                // Award Gold for Monstername || entityId;
+                // Award Gold
                 const killerStats = killerId ? this.combatSystem.getStats(killerId) : null;
                 const killerName = killerStats ? (killerStats.name || killerStats.type) : (killerId || 'Environment');
+                const victimName = stats ? (stats.name || stats.type) : entityId;
 
                 let killMsg = `${victimName} died`;
                 if (!stats.isPlayer && stats.team === 'monster' && killerId) {
@@ -821,7 +823,7 @@ s for local player
                     this.audioSystem.play('pickup', data.payload.x, data.payload.y);
                 } else if (data.type === 'RESPAWN_MONSTER') {
                     if (data.payload.id === this.state.myId) {
-                        this.showNotification(`Respawned as ${data.payload.tyfalse;
+                        this.showNotification(`Respawned as ${data.payload.type}`);
                     }
                 } else if (data.type === 'EFFECT') {
                     this.renderSystem.addEffect(data.payload.x, data.payload.y, data.payload.type);
@@ -840,7 +842,8 @@ s for local player
                 }
 
                 if (data.type === 'UPDATE_GOLD') {
-                    if (data.payload.id === this.state.myId) {.payload.amount;
+                    if (data.payload.id === this.state.myId) {
+                        this.playerData.gold += data.payload.amount;
                         this.updateGoldUI();
                         this.database.savePlayer({ gold: this.playerData.gold });
                         this.showNotification(`+${data.payload.amount}g`);
@@ -860,6 +863,7 @@ s for local player
                         // For now, just generic sound/update is okay, or we can update protocol later.
                         // The prompt asked for notification on looting from chest, which usually happens locally or via direct interaction response.
                     }
+                }
             }
         });
 
@@ -1287,7 +1291,8 @@ s for local player
                     const ty = pos.y + intent.direction.y;
                     const targetId = this.gridSystem.getEntityAt(tx, ty);
                     
-                    if (targetId) {d, targetId);
+                    if (targetId) {
+                        this.performAttack(entityId, targetId);
                     } else {
                         // Whiff
                         this.renderSystem.triggerAttack(entityId);
@@ -1300,7 +1305,8 @@ s for local player
             return; // Suppress position update
         }
 
-        if (pos && intent.type === 'MOVE') {ost(pos.x + intent.direction.x, pos.y + intent.direction.y);
+        if (pos && intent.type === 'MOVE') {
+            const cost = this.gridSystem.getMovementCost(pos.x + intent.direction.x, pos.y + intent.direction.y);
             cooldown *= cost;
         }
 
@@ -1369,7 +1375,8 @@ s for local player
                 // Round coordinates to ensure valid grid access (prevent float indexing)
                 if (pos && this.gridSystem.grid[Math.round(pos.y)][Math.round(pos.x)] === 9) {
                     this.handleExtraction(entityId);
-                }collision !== 'wall') {
+                }
+            } else if (result.collision !== 'wall') {
                 // Trigger Bump for entity collision too
                 this.renderSystem.triggerBump(entityId, intent.direction);
 
@@ -1457,7 +1464,6 @@ s for local player
                         else this.processLootInteraction(entityId, allItems[0]); 
                     }
                 }
-            }
         }
 
         if (intent.type === 'TARGET_ACTION') {
@@ -1534,6 +1540,7 @@ s for local player
                 const targetY = attacker.y + attacker.facing.y;
                 const targetId = this.gridSystem.getEntityAt(targetX, targetY);
 
+                if (targetId) {
                     // Friendly Fire Check for Monsters
                     const attackerStats = this.combatSystem.getStats(entityId);
                     const targetStats = this.combatSystem.getStats(targetId);
@@ -1558,7 +1565,8 @@ s for local player
                 this.addActivityLog(`Used ${effect.name} (Slot ${intent.slot + 1})`);
                 if (effect.effect === 'heal') {
                     const stats = this.combatSystem.getStats(entityId);
-                    if (stats) {.maxHp, stats.hp + effect.value);
+                    if (stats) {
+                        stats.hp = Math.min(stats.maxHp, stats.hp + effect.value);
                         // Emit damage event with negative amount to signal heal? Or just update HP.
                         // Emit negative amount to trigger green floating text
                         this.combatSystem.emit('damage', { targetId: entityId, amount: -effect.value, sourceId: entityId, currentHp: stats.hp });
@@ -1577,7 +1585,7 @@ s for local player
         // Legacy F key or mapped ability
         if (intent.type === 'ABILITY') {
             const result = this.combatSystem.useAbility(entityId);
-            if (result) {y}`);
+            if (result) {
                 this.addActivityLog(`Used ${result.ability}`);
                 // Sync visual effects if needed
                 if (result.effect === 'stealth') {
@@ -1665,7 +1673,7 @@ s for local player
         console.log(`Processing extraction for ${entityId}`);
         // 1. Save Data
         const stats = this.combatSystem.getStats(entityId);
-        cons
+        const name = stats ? (stats.name || 'Unknown') : 'Unknown';
         if (entityId === this.state.myId) {
             this.playerData.gold += 100; // Flat reward for now
             this.state.isExtracting = true;
@@ -2101,9 +2109,6 @@ s for local player
                         this.handleInput({ type: 'MOVE', direction: { x: Math.sign(dx), y: Math.sign(dy) } });
                     }
                 }
-            } else if (this.state.chaseTargetId && !moveIntent) {
-                // Path finished, check if we can attack
-                const targetPos = this.gridSystem.entities.get(this.state.chaseTargetId);
             } else if (this.state.chaseTargetId && !moveIntent) {
                 // Path finished, check if we can attack
                 const targetPos = this.gridSystem.entities.get(this.state.chaseTargetId);
