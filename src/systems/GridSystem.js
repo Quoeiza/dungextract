@@ -70,10 +70,8 @@ export default class GridSystem {
             });
         }
         
-        // Water generation: More small pools, occasional larger lakes
-        this.addFeature(2, 40, 3, 1); // Many small puddles (size 1-3)
-        this.addFeature(2, 10, 8);  // Occasional large lakes (size 2-9)
-        this.addFeature(3, 5, 4);  // Add up to 5 patches of mud (3) of max size 4
+        // Puddle generation
+        this.addFeature(2, 200, 10, 1);
 
         // 6. Place torches on some room walls
         for (const room of this.rooms) {
@@ -214,7 +212,7 @@ export default class GridSystem {
         const t = this.grid[y][x];
         
         // Standard walkable tiles
-        if (t === 0 || t === 2 || t === 3 || t === 4 || t === 9) return true;
+        if (t === 0 || t === 2 || t === 4 || t === 9) return true;
 
         // Special Case: "Top Edge" Walls (Visual Roof Rims)
         // Allows walking "behind" the wall (visually under the roof).
@@ -223,14 +221,14 @@ export default class GridSystem {
             if (y > 0) {
                 const n = this.grid[y-1][x];
                 // Check if North is Floor-like
-                if (n === 0 || n === 2 || n === 3 || n === 4 || n === 9) {
+                if (n === 0 || n === 2 || n === 4 || n === 9) {
                     // Check if this is a Front Face (Vertical Wall)
                     let isFrontFace = false;
                     // Scan downwards (Limit 2 to match TileMapManager)
                     for (let dy = 1; dy <= 2; dy++) {
                         if (y + dy >= this.height) break;
                         const val = this.grid[y+dy][x];
-                        if (val === 0 || val === 2 || val === 3 || val === 4 || val === 9) {
+                        if (val === 0 || val === 2 || val === 4 || val === 9) {
                             isFrontFace = true;
                             break;
                         }
@@ -249,7 +247,6 @@ export default class GridSystem {
     getMovementCost(x, y) {
         if (x < 0 || x >= this.width || y < 0 || y >= this.height) return 1.0;
         const t = this.grid[y][x];
-        if (t === 2 || t === 3) return 2.0; // Water/Mud slows significantly
         if (t === 4) return 1.5; // Lava slows
         return 1.0;
     }

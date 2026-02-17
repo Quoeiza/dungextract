@@ -145,24 +145,6 @@ export default class RenderSystem {
         // 1. Bottom Layer: Floors and Walls
         this.tileMapManager.drawFloor(ctxB, grid, viewBounds);
         
-        // Bake static procedural floors (Mud) into the cache
-        for (let y = 0; y < h; y++) {
-            for (let x = 0; x < w; x++) {
-                const tile = grid[y][x];
-                if (tile === 3) { // Mud
-                    const screenX = x * ts;
-                    const screenY = y * ts;
-                    const n = noise(x, y);
-                    ctxB.fillStyle = '#3e2723';
-                    ctxB.fillRect(screenX, screenY, ts, ts);
-                    if (n > 0.5) {
-                        ctxB.fillStyle = '#281a15';
-                        ctxB.fillRect(screenX + (ts * 0.15), screenY + (ts * 0.15), ts * 0.15, ts * 0.15);
-                    }
-                }
-            }
-        }
-
         this.tileMapManager.drawWalls(ctxW, grid, viewBounds);
 
         // 2. Top Layer: Roofs
@@ -212,7 +194,7 @@ export default class RenderSystem {
 
                     // Re-add procedural rendering for special tiles
                     if (tile === 4) { // Lava
-                        const pulse = Math.sin(Date.now() / 300);
+                        const glse = Math.sin(Date.now() / 300);
                         this.ctx.fillStyle = `rgb(${200 + pulse * 50}, 50, 0)`;
                         this.ctx.fillRect(screenX, screenY, ts, ts);
                         this.ctx.fillStyle = '#ffeb3b';
@@ -981,7 +963,7 @@ export default class RenderSystem {
     }
 
     isFloor(t) {
-        return t === 0 || t === 2 || t === 3 || t === 4 || t === 9;
+        return t === 0 || t === 2 || t === 4 || t === 9;
     }
 
     isLightBlocking(grid, x, y) {
