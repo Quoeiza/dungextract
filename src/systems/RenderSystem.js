@@ -102,6 +102,8 @@ export default class RenderSystem {
         this.shadowCanvas.width = gameW;
         this.shadowCanvas.height = gameH;
         this.ctx.imageSmoothingEnabled = false;
+        this.lightCtx.imageSmoothingEnabled = false;
+        this.shadowCtx.imageSmoothingEnabled = false;
     }
 
     clear() {
@@ -1345,7 +1347,7 @@ export default class RenderSystem {
         }
 
         // Small epsilon to prevent float precision z-fighting on edges
-        const pad = 1;
+        const pad = 0;
 
         // Reuse static corners array
         this.shadowCorners[0].x = tx + pad; this.shadowCorners[0].y = ty + pad;
