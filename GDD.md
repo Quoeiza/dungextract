@@ -98,14 +98,14 @@ The primary target audience is players who enjoy competitive, session-based game
 
 ## **Movement and Grid**
 
-* **Movement Type:** Grid-based (e.g., moving one tile at a time).  
-* **Input Throttle:** Movement and action inputs are subject to the 250ms global cooldown. Players cannot spam actions.
+* **Movement Type:** Grid-based 8 directions (e.g., moving one tile at a time).  
+* **Input Throttle:** Movement and action inputs are subject to the 250ms global timer. Players cannot spam actions faster than 250ms.
 
 ## **Combat**
 
-* **Real-Time:** Combat is real-time, relying on player positioning and timing. Utilises traditional mechanics for a roguelike \- moving into an enemy performs a basic melee attack, but there’s also a dedicated button that triggers melee and ranged attacks.  
-* **Abilities:** Players have a basic attack and 1-3 unique, cooldown-based abilities depending on their starting class/kit.  
-* **Line of Sight:** Fog of war or restricted line of sight mechanic to limit awareness and encourage exploration/ambushes. Heavy dynamic lighting and shadow emphasis.
+* **Real-Time:** Combat is real-time, relying on player positioning and timing. Utilises traditional mechanics for a roguelike \- moving into an enemy performs a basic bump melee attack, but there’s also a dedicated button that triggers melee/ranged attacks.  
+* **Abilities:** Players have a basic attack and several unique, cooldown-based abilities depending on their defined skills.  
+* **Line of Sight:** Shadows & restricted line of sight mechanic to limit awareness and encourage exploration/ambushes. Heavy dynamic lighting and shadow emphasis.
 
 ## **NPC Monsters**
 
