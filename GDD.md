@@ -79,7 +79,7 @@ The primary target audience is players who enjoy competitive, session-based game
 | Constraint | Mitigation Strategy |
 | :---- | :---- |
 | Low Bandwidth/Latency | **Global Cooldown:** All ingame actions (movements, attacks, etc) are synchronised to a **250ms global cooldown** (4 actions/second max). |
-| Data Transfer Rate | **Input-Only Networking:** Only player inputs (e.g., move, attack) are transmitted, not regular full positional data. Target network rate is approx. **5-10Hz**. |
+| Data Transfer Rate | **Snapshot Interpolation:** Host sends compressed state snapshots (positions, health) to clients at approx. **10Hz**. Clients send inputs to Host. |
 | Visual Smoothness | **Client Interpolation:** The client visually smooths movements between received Host state updates to prevent a choppy experience. |
 | Host Dropouts | **Pause-and-Reconnect:** If the Host is lost, the game pauses. A new Host is auto-elected, and remaining players attempt to reconnect and resync state. |
 | Fairness | **Host-Authoritative Collision:** The Host determines the definitive outcome of all collisions, attacks, and interactions to prevent client-side cheating. |
