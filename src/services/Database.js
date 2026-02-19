@@ -25,4 +25,22 @@ export default class Database {
             return false;
         }
     }
+
+    async updatePlayer(updates) {
+        const current = await this.getPlayer();
+        const updated = { ...current, ...updates };
+        await this.savePlayer(updated);
+        return updated;
+    }
+
+    async addRewards(goldReward, extractionCount = 0) {
+        const current = await this.getPlayer();
+        const updated = { 
+            ...current, 
+            gold: (current.gold || 0) + goldReward,
+            extractions: (current.extractions || 0) + extractionCount
+        };
+        await this.savePlayer(updated);
+        return updated;
+    }
 }

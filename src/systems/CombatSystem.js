@@ -350,4 +350,11 @@ export default class CombatSystem extends EventEmitter {
         }
         return cooldown;
     }
+
+    isFriendly(id1, id2) {
+        const s1 = this.getStats(id1);
+        const s2 = this.getStats(id2);
+        // Monsters cannot hurt other monsters. Players can hurt everyone (PvP).
+        return (s1 && s2 && s1.team === 'monster' && s2.team === 'monster');
+    }
 }

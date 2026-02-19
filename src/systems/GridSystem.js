@@ -661,66 +661,6 @@ export default class GridSystem {
         return null;
     }
 
-    getStraightPath(x0, y0, x1, y1) {
-        const path = [];
-        let x = Math.round(x0);
-        let y = Math.round(y0);
-        const tx = Math.round(x1);
-        const ty = Math.round(y1);
-
-        const dx = Math.abs(tx - x);
-        const dy = Math.abs(ty - y);
-        const sx = (x < tx) ? 1 : -1;
-        const sy = (y < ty) ? 1 : -1;
-        let err = dx - dy;
-
-        let iterations = 0;
-        const maxIterations = 100; 
-
-        while (true) {
-            if (x === tx && y === ty) break;
-            if (iterations++ > maxIterations) break;
-
-            let e2 = 2 * err;
-            if (e2 > -dy) { err -= dy; x += sx; }
-            if (e2 < dx) { err += dx; y += sy; }
-
-            path.push({ x, y });
-        }
-        return path;
-    }
-
-    findNearestUnexplored(startX, startY, exploredSet) {
-        const visited = new Set();
-        const queue = [{x: Math.round(startX), y: Math.round(startY)}];
-        
-        let loops = 0;
-        while(queue.length > 0 && loops < 2000) { // Safety limit
-            loops++;
-            const curr = queue.shift();
-            const key = `${curr.x},${curr.y}`;
-            
-            if (visited.has(key)) continue;
-            visited.add(key);
-
-            // If this tile is NOT explored, it's our target
-            if (!exploredSet.has(key) && this.isWalkable(curr.x, curr.y)) {
-                return curr;
-            }
-
-            // Neighbors
-            const dirs = [{x:0,y:1},{x:0,y:-1},{x:1,y:0},{x:-1,y:0}];
-            for (const d of dirs) {
-                const nx = curr.x + d.x;
-                const ny = curr.y + d.y;
-                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
-                    queue.push({x: nx, y: ny});
-                }
-            }
-        }
-        return null;
-    }
-
     processLavaDamage(dt, combatSystem) {
         this.lavaTimer += dt;
         if (this.lavaTimer >= 1000) {
@@ -760,5 +700,88 @@ export default class GridSystem {
             }
         }
         return result;
+    }
+
+    resolveMoveIntent(entityId, direction, lootSystem) {
+        const pos = this.entities.get(entityId);
+        if (!pos) return { type: 'NONE' };
+
+        const tx = pos.x + direction.x;
+        const ty = pos.y + direction.y;
+
+        // 1. Check Loot Collision (Chests)
+        if (lootSystem.isCollidable(tx, ty)) {
+            const items = lootSystem.getItemsAt(tx, ty);
+            const chest = items.find(l => l.type === 'chest' && !l.opened);
+            if (chest) {
+                return { type: 'INTERACT_LOOT', loot: chest, facing: direction };
+            }
+            return { type: 'BLOCKED_BY_LOOT', facing: direction };
+        }
+
+        // 2. Attempt Move
+        const result = this.attemptMoveWithSlide(entityId, direction.x, direction.y);
+        
+        if (result.success) {
+            return { type: 'MOVED', x: result.x, y: result.y };
+        } else if (result.collision === 'wall') {
+            return { type: 'BUMP_WALL', direction };
+        } else if (result.collision) {
+            return { type: 'BUMP_ENTITY', targetId: result.collision, direction };
+        }
+
+        return { type: 'NONE' };
+    }
+
+    determineClickIntent(gridX, gridY, myId, combatSystem, lootSystem, isContinuous, shift) {
+        const pos = this.entities.get(myId);
+        if (!pos) return null;
+
+        let targetId = this.getEntityAt(gridX, gridY);
+        const loot = lootSystem.getLootAt(gridX, gridY);
+
+        if (isContinuous) {
+            const bestId = combatSystem.findBestTarget(this, myId, gridX, gridY, 3);
+            if (bestId) targetId = bestId;
+        }
+
+        const isHostile = targetId && targetId !== myId;
+
+        if (isHostile && !shift) {
+            const equip = lootSystem.getEquipment(myId);
+            const weaponId = equip.weapon;
+            const config = weaponId ? lootSystem.getItemConfig(weaponId) : null;
+            const isRanged = config && config.range > 1;
+
+            if (!isRanged) {
+                const dist = Math.max(Math.abs(gridX - pos.x), Math.abs(gridY - pos.y));
+                if (dist > 1) {
+                    const path = this.findPathToAdjacent(pos.x, pos.y, gridX, gridY);
+                    if (path) return { type: 'CHASE', path, targetId };
+                    return null;
+                }
+            }
+        }
+
+        if (shift || isHostile) return { type: 'ATTACK_TARGET', x: gridX, y: gridY };
+
+        if (loot) {
+            const path = this.findPathToAdjacent(pos.x, pos.y, gridX, gridY);
+            if (path) return { type: 'MOVE_PATH', path };
+        }
+
+        let path = this.findPath(pos.x, pos.y, gridX, gridY);
+        if (!path) path = this.getStraightPath(pos.x, pos.y, gridX, gridY);
+        
+        return path ? { type: 'MOVE_PATH', path } : { type: 'CLEAR_PATH' };
+    }
+
+    findPathToAdjacent(startX, startY, endX, endY) {
+        const path = this.findPath(startX, startY, endX, endY);
+        if (path && path.length > 0) {
+            path.pop();
+            return path;
+        }
+        return null;
     }
 }

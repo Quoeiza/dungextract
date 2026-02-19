@@ -53,16 +53,6 @@ export default class GameLoop {
             this.ticker.timePerTick = 1000 / this.config.global.tickRate;
         }
 
-        // TEST OVERRIDE: Replace all enemies with Skeleton
-        this.config.enemies = {
-            'skeleton': {
-                name: 'Skeleton',
-                hp: 30,
-                maxHp: 30,
-                damage: 5,
-                xp: 10
-            }
-        };
         
         // 2. Load Player Data
         this.playerData = (await this.database.getPlayer()) || { name: 'Player', gold: 0, extractions: 0 };
@@ -257,9 +247,8 @@ export default class GameLoop {
                 if (!stats.isPlayer && stats.team === 'monster' && killerId) {
                     const reward = Math.floor(Math.random() * 4) + 2;
                     if (killerId === this.state.myId) {
-                        this.playerData.gold += reward;
+                        this.database.addRewards(reward).then(data => this.playerData = data);
                         this.uiSystem.updateGoldUI();
-                        this.database.savePlayer({ gold: this.playerData.gold });
                         this.uiSystem.showNotification(`+${reward}g`);
                     } else {
                         this.peerClient.send({ type: 'UPDATE_GOLD', payload: { id: killerId, amount: reward } });
@@ -366,9 +355,9 @@ export default class GameLoop {
 
                 if (data.type === 'UPDATE_GOLD') {
                     if (data.payload.id === this.state.myId) {
-                        this.playerData.gold += data.payload.amount;
+                        this.playerData.gold = (this.playerData.gold || 0) + data.payload.amount;
+                        this.database.updatePlayer({ gold: this.playerData.gold });
                         this.uiSystem.updateGoldUI();
-                        this.database.savePlayer({ gold: this.playerData.gold });
                         this.uiSystem.showNotification(`+${data.payload.amount}g`);
                     }
                 }
@@ -470,69 +459,26 @@ export default class GameLoop {
     }
 
     processClickLogic(gridX, gridY, shift, isContinuous = false) {
-        const pos = this.gridSystem.entities.get(this.state.myId);
-        if (!pos) return;
+        const intent = this.gridSystem.determineClickIntent(
+            gridX, gridY, this.state.myId, 
+            this.combatSystem, this.lootSystem, 
+            isContinuous, shift
+        );
 
-        let targetId = this.gridSystem.getEntityAt(gridX, gridY);
-        const loot = this.lootSystem.getLootAt(gridX, gridY);
+        if (!intent) return;
 
-        if (isContinuous) {
-            const bestId = this.combatSystem.findBestTarget(this.gridSystem, this.state.myId, gridX, gridY, 3);
-            if (bestId) {
-                targetId = bestId;
-            }
-        }
-
-        const isHostile = targetId && targetId !== this.state.myId;
-
-        if (isHostile && !shift) {
-            const equip = this.lootSystem.getEquipment(this.state.myId);
-            const weaponId = equip.weapon;
-            const config = weaponId ? this.lootSystem.getItemConfig(weaponId) : null;
-            const isRanged = config && config.range > 1;
-
-            if (!isRanged) {
-                const dist = Math.max(Math.abs(gridX - pos.x), Math.abs(gridY - pos.y));
-                if (dist > 1) {
-                    const path = this.gridSystem.findPath(pos.x, pos.y, gridX, gridY);
-                    if (path && path.length > 0) {
-                        path.pop();
-                        this.state.autoPath = path;
-                        this.state.chaseTargetId = targetId;
-                    }
-                    return; 
-                }
-            }
-        }
-
-        const isAttack = shift || isHostile;
-
-        if (isAttack) {
+        if (intent.type === 'CHASE') {
+            this.state.autoPath = intent.path;
+            this.state.chaseTargetId = intent.targetId;
+        } else if (intent.type === 'ATTACK_TARGET') {
             this.state.autoPath = [];
             this.state.chaseTargetId = null;
-            
             const projId = `proj_${Date.now()}_${this.state.myId}`;
-            this.handleInput({ type: 'TARGET_ACTION', x: gridX, y: gridY, projId: projId });
-            return; 
-        }
-
-        if (loot) {
-            const path = this.gridSystem.findPath(pos.x, pos.y, gridX, gridY);
-            if (path && path.length > 0) {
-                path.pop(); 
-                this.state.autoPath = path;
-            }
-        } else {
-            let path = this.gridSystem.findPath(pos.x, pos.y, gridX, gridY);
-            if (!path) {
-                path = this.gridSystem.getStraightPath(pos.x, pos.y, gridX, gridY);
-            }
-
-            if (path) {
-                this.state.autoPath = path;
-            } else {
-                this.state.autoPath = [];
-            }
+            this.handleInput({ type: 'TARGET_ACTION', x: intent.x, y: intent.y, projId: projId });
+        } else if (intent.type === 'MOVE_PATH') {
+            this.state.autoPath = intent.path;
+        } else if (intent.type === 'CLEAR_PATH') {
+            this.state.autoPath = [];
         }
     }
 
@@ -634,36 +580,28 @@ export default class GameLoop {
                 }
             }
 
-            const result = this.gridSystem.attemptMoveWithSlide(entityId, intent.direction.x, intent.direction.y);
+            const result = this.gridSystem.resolveMoveIntent(entityId, intent.direction, this.lootSystem);
 
-            if (result.success) {
+            if (result.type === 'INTERACT_LOOT') {
+                if (pos) pos.facing = result.facing;
+                this.processLootInteraction(entityId, result.loot);
+                return;
+            } else if (result.type === 'MOVED') {
                 if (entityId === this.state.myId) {
                     this.audioSystem.play('step', pos.x, pos.y);
                     this.renderSystem.addEffect(startX, startY, 'dust');
                 }
-                
-                if (pos && this.gridSystem.grid[Math.round(pos.y)][Math.round(pos.x)] === 9) {
+                if (this.gridSystem.grid[Math.round(result.y)][Math.round(result.x)] === 9) {
                     this.handleExtraction(entityId);
                 }
-            } else if (result.collision !== 'wall') {
-                this.renderSystem.triggerBump(entityId, intent.direction);
-
-                const attackerStats = this.combatSystem.getStats(entityId);
-                const targetStats = this.combatSystem.getStats(result.collision);
-                
-                let friendlyFire = false;
-                if (attackerStats && targetStats && attackerStats.team === 'monster' && targetStats.team === 'monster') {
-                    friendlyFire = true;
+            } else if (result.type === 'BUMP_ENTITY') {
+                this.renderSystem.triggerBump(entityId, result.direction);
+                if (!this.combatSystem.isFriendly(entityId, result.targetId)) {
+                    this.performAttack(entityId, result.targetId);
                 }
-
-                if (!friendlyFire) {
-                    this.performAttack(entityId, result.collision);
-                }
-            } else if (result.collision === 'wall') {
-                this.renderSystem.triggerBump(entityId, intent.direction);
-                if (entityId === this.state.myId) {
-                    this.audioSystem.play('bump', pos.x, pos.y);
-                }
+            } else if (result.type === 'BUMP_WALL') {
+                this.renderSystem.triggerBump(entityId, result.direction);
+                if (entityId === this.state.myId) this.audioSystem.play('bump', pos.x, pos.y);
             }
         }
         
@@ -843,10 +781,8 @@ export default class GameLoop {
         const stats = this.combatSystem.getStats(entityId);
         const name = stats ? (stats.name || 'Unknown') : 'Unknown';
         if (entityId === this.state.myId) {
-            this.playerData.gold += 100;
+            this.database.addRewards(100, 1).then(data => this.playerData = data);
             this.state.isExtracting = true;
-            this.playerData.extractions = (this.playerData.extractions || 0) + 1;
-            this.database.savePlayer({ gold: this.playerData.gold, extractions: this.playerData.extractions });
             this.uiSystem.updateGoldUI();
         }
         
