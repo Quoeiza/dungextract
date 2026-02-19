@@ -325,4 +325,16 @@ export default class LootSystem {
         const itemsFront = this.getItemsAt(fx, fy);
         return [...itemsBelow, ...itemsFront].filter(l => !l.opened);
     }
+
+    getPickupTarget(entityId, gridSystem) {
+        const pos = gridSystem.entities.get(entityId);
+        if (!pos) return null;
+        
+        const allItems = this.findNearbyLoot(pos.x, pos.y, pos.facing);
+        const chest = allItems.find(i => i.type === 'chest');
+        
+        if (chest) return { type: 'chest', target: chest };
+        if (allItems.length > 0) return { type: 'items', items: allItems };
+        return null;
+    }
 }

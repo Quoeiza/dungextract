@@ -631,83 +631,60 @@ export default class GameLoop {
 
         if (intent.type === 'PICKUP') {
             const stats = this.combatSystem.getStats(entityId);
-            
             if (stats && stats.team === 'monster') {
                 return;
             }
 
-                const allItems = this.lootSystem.findNearbyLoot(pos.x, pos.y, pos.facing);
+                const target = this.lootSystem.getPickupTarget(entityId, this.gridSystem);
+            if (!target) return;
 
-                const chest = allItems.find(i => i.type === 'chest');
-                if (chest && entityId === this.state.myId) {
-                    this.state.interaction = { type: 'chest', target: chest, startTime: Date.now(), duration: 2000 };
-                    return;
-                }
+            if (target.type === 'chest' && entityId === this.state.myId) {
+                this.state.interaction = { type: 'chest', target: target.target, startTime: Date.now(), duration: 2000 };
+                return;
+            }
 
-                if (allItems.length > 0) {
-                    if (allItems.length > 1) {
-                        if (entityId === this.state.myId) this.uiSystem.showGroundLoot(allItems);
-                    } else {
-                        if (entityId === this.state.myId) this.handleInteractWithLoot(allItems[0]);
-                        else this.processLootInteraction(entityId, allItems[0]); 
-                    }
+            if (target.type === 'items') {
+                if (target.items.length > 1) {
+                    if (entityId === this.state.myId) this.uiSystem.showGroundLoot(target.items);
+                } else {
+                    if (entityId === this.state.myId) this.handleInteractWithLoot(target.items[0]);
+                    else this.processLootInteraction(entityId, target.items[0]); 
                 }
+            }
         }
 
         if (intent.type === 'TARGET_ACTION') {
-            const gridX = intent.x;
-            const gridY = intent.y;
+            const result = this.combatSystem.processTargetAction(entityId, intent.x, intent.y, this.gridSystem, this.lootSystem);
             
-            const dx = gridX - pos.x;
-            const dy = gridY - pos.y;
-            
-            if (dx !== 0 || dy !== 0) {
-                pos.facing = this.gridSystem.getFacingFromVector(dx, dy);
-            }
-
-            const proj = this.combatSystem.createProjectile(entityId, pos.x, pos.y, dx, dy, this.lootSystem);
-
-            if (proj) {
-                if (intent.projId) proj.id = intent.projId;
-                this.state.projectiles.push(proj);
-                this.peerClient.send({ type: 'SPAWN_PROJECTILE', payload: proj });
+            if (result && result.type === 'PROJECTILE') {
+                if (intent.projId) result.projectile.id = intent.projId;
+                this.state.projectiles.push(result.projectile);
+                this.peerClient.send({ type: 'SPAWN_PROJECTILE', payload: result.projectile });
                 this.audioSystem.play('attack', pos.x, pos.y);
                 this.renderSystem.triggerAttack(entityId);
-            } else {
-                const adjX = pos.x + pos.facing.x;
-                const adjY = pos.y + pos.facing.y;
-                const adjId = this.gridSystem.getEntityAt(adjX, adjY);
-
-                if (adjId) {
-                    this.performAttack(entityId, adjId);
-                } else {
-                    this.renderSystem.triggerAttack(entityId);
-                    this.renderSystem.addEffect(adjX, adjY, 'slash');
-                    this.peerClient.send({ type: 'EFFECT', payload: { x: adjX, y: adjY, type: 'slash' } });
-                    this.audioSystem.play('swing', pos.x, pos.y);
-                }
+            } else if (result && result.type === 'MELEE') {
+                this.performAttack(entityId, result.targetId);
+            } else if (result && result.type === 'MISS') {
+                this.renderSystem.triggerAttack(entityId);
+                this.renderSystem.addEffect(result.x, result.y, 'slash');
+                this.peerClient.send({ type: 'EFFECT', payload: { x: result.x, y: result.y, type: 'slash' } });
+                this.audioSystem.play('swing', pos.x, pos.y);
             }
         }
 
         if (intent.type === 'ATTACK') {
-            const attacker = this.gridSystem.entities.get(entityId);
-            if (attacker) {
-                const targetX = attacker.x + attacker.facing.x;
-                const targetY = attacker.y + attacker.facing.y;
-                const targetId = this.gridSystem.getEntityAt(targetX, targetY);
-
-                if (targetId) {
-                    const attackerStats = this.combatSystem.getStats(entityId);
-                    const targetStats = this.combatSystem.getStats(targetId);
-                    if (attackerStats && targetStats && attackerStats.team === 'monster' && targetStats.team === 'monster') {
-                        return;
-                    }
-                    this.performAttack(entityId, targetId);
-                } else {
-                    this.renderSystem.addEffect(targetX, targetY, 'slash');
-                    this.peerClient.send({ type: 'EFFECT', payload: { x: targetX, y: targetY, type: 'slash' } });
-                    this.audioSystem.play('swing', attacker.x, attacker.y);
+            const result = this.combatSystem.processAttackIntent(entityId, this.gridSystem);
+            if (result && result.type === 'MELEE') {
+                const attackerStats = this.combatSystem.getStats(entityId);
+                const targetStats = this.combatSystem.getStats(result.targetId);
+                if (attackerStats && targetStats && attackerStats.team === 'monster' && targetStats.team === 'monster') {
+                    return;
                 }
+                this.performAttack(entityId, result.targetId);
+            } else if (result && result.type === 'MISS') {
+                this.renderSystem.addEffect(result.x, result.y, 'slash');
+                this.peerClient.send({ type: 'EFFECT', payload: { x: result.x, y: result.y, type: 'slash' } });
+                this.audioSystem.play('swing', pos.x, pos.y);
             }
         }
 

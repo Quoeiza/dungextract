@@ -357,4 +357,42 @@ export default class CombatSystem extends EventEmitter {
         // Monsters cannot hurt other monsters. Players can hurt everyone (PvP).
         return (s1 && s2 && s1.team === 'monster' && s2.team === 'monster');
     }
+
+    processTargetAction(entityId, gridX, gridY, gridSystem, lootSystem) {
+        const pos = gridSystem.entities.get(entityId);
+        if (!pos) return null;
+
+        const dx = gridX - pos.x;
+        const dy = gridY - pos.y;
+        
+        if (dx !== 0 || dy !== 0) {
+            pos.facing = gridSystem.getFacingFromVector(dx, dy);
+        }
+
+        const proj = this.createProjectile(entityId, pos.x, pos.y, dx, dy, lootSystem);
+        if (proj) {
+            return { type: 'PROJECTILE', projectile: proj };
+        }
+
+        const adjX = pos.x + pos.facing.x;
+        const adjY = pos.y + pos.facing.y;
+        const adjId = gridSystem.getEntityAt(adjX, adjY);
+
+        return adjId 
+            ? { type: 'MELEE', targetId: adjId } 
+            : { type: 'MISS', x: adjX, y: adjY };
+    }
+
+    processAttackIntent(entityId, gridSystem) {
+        const attacker = gridSystem.entities.get(entityId);
+        if (!attacker) return null;
+
+        const targetX = attacker.x + attacker.facing.x;
+        const targetY = attacker.y + attacker.facing.y;
+        const targetId = gridSystem.getEntityAt(targetX, targetY);
+
+        return targetId 
+            ? { type: 'MELEE', targetId } 
+            : { type: 'MISS', x: targetX, y: targetY };
+    }
 }
