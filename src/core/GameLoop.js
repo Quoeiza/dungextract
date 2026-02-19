@@ -108,11 +108,7 @@ export default class GameLoop {
     }
 
     respawnAsMonster(entityId) {
-        const type = this.combatSystem.getRandomMonsterType();
-        const spawn = this.gridSystem.getSpawnPoint(false);
-        
-        this.gridSystem.addEntity(entityId, spawn.x, spawn.y);
-        this.combatSystem.registerEntity(entityId, type, true); // isPlayer=true, team=monster
+        const { type } = this.combatSystem.respawnPlayerAsMonster(entityId, this.gridSystem);
         
         if (this.state.isHost) {
              this.peerClient.send({ type: 'RESPAWN_MONSTER', payload: { id: entityId, type } });
@@ -151,21 +147,10 @@ export default class GameLoop {
             return;
         }
 
-        let count = 1;
-        if (source === 'inventory') {
-            count = this.lootSystem.removeItemFromInventory(this.state.myId, itemId);
-        } else {
-            const item = this.lootSystem.removeEquipment(this.state.myId, source);
-            if (item) count = item.count;
-            else count = 0;
+        if (this.state.isHost) {
+            this.lootSystem.performDrop(this.state.myId, itemId, source, this.gridSystem);
         }
 
-        const pos = this.gridSystem.entities.get(this.state.myId);
-        if (pos) {
-            if (this.state.isHost) {
-                if (count > 0) this.lootSystem.spawnDrop(pos.x, pos.y, itemId, count);
-            }
-        }
         this.uiSystem.renderInventory();
         this.audioSystem.play('pickup');
         if (this.state.isHost) this.sendInventoryUpdate(this.state.myId);
@@ -596,21 +581,9 @@ export default class GameLoop {
             if (pos) {
                 pos.facing = intent.direction;
                 
-                const equip = this.lootSystem.getEquipment(entityId);
-                const weaponId = equip.weapon;
-                const config = weaponId ? this.lootSystem.getItemConfig(weaponId) : null;
+                const proj = this.combatSystem.createProjectile(entityId, pos.x, pos.y, intent.direction.x, intent.direction.y, this.lootSystem);
 
-                if (config && config.range > 1) {
-                    const proj = { 
-                        id: `proj_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                        x: pos.x, 
-                        y: pos.y, 
-                        vx: intent.direction.x, 
-                        vy: intent.direction.y, 
-                        speed: 15, 
-                        ownerId: entityId, 
-                        damage: config.damage 
-                    };
+                if (proj) {
                     this.state.projectiles.push(proj);
                     this.peerClient.send({ type: 'SPAWN_PROJECTILE', payload: proj });
                     this.audioSystem.play('attack', pos.x, pos.y);
@@ -771,11 +744,6 @@ export default class GameLoop {
             const gridX = intent.x;
             const gridY = intent.y;
             
-            const equip = this.lootSystem.getEquipment(entityId);
-            const weaponId = equip.weapon;
-            const config = weaponId ? this.lootSystem.getItemConfig(weaponId) : null;
-            const isRanged = config && config.range > 1;
-
             const dx = gridX - pos.x;
             const dy = gridY - pos.y;
             
@@ -789,23 +757,10 @@ export default class GameLoop {
                 pos.facing = dirs[octant];
             }
 
-            if (isRanged) {
-                const mag = Math.sqrt(dx*dx + dy*dy);
-                const vx = mag === 0 ? pos.facing.x : dx/mag;
-                const vy = mag === 0 ? pos.facing.y : dy/mag;
+            const proj = this.combatSystem.createProjectile(entityId, pos.x, pos.y, dx, dy, this.lootSystem);
 
-                const projId = intent.projId || `proj_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-
-                const proj = { 
-                    id: projId,
-                    x: pos.x, 
-                    y: pos.y, 
-                    vx: vx, 
-                    vy: vy, 
-                    speed: 15, 
-                    ownerId: entityId, 
-                    damage: config ? config.damage : 5
-                };
+            if (proj) {
+                if (intent.projId) proj.id = intent.projId;
                 this.state.projectiles.push(proj);
                 this.peerClient.send({ type: 'SPAWN_PROJECTILE', payload: proj });
                 this.audioSystem.play('attack', pos.x, pos.y);

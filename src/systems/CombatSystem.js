@@ -255,4 +255,38 @@ export default class CombatSystem extends EventEmitter {
             targetPos
         };
     }
+
+    respawnPlayerAsMonster(entityId, gridSystem) {
+        const type = this.getRandomMonsterType();
+        const spawn = gridSystem.getSpawnPoint(false);
+        
+        gridSystem.addEntity(entityId, spawn.x, spawn.y);
+        this.registerEntity(entityId, type, true);
+        
+        return { type, x: spawn.x, y: spawn.y };
+    }
+
+    createProjectile(ownerId, x, y, dx, dy, lootSystem) {
+        const equip = lootSystem.getEquipment(ownerId);
+        const weaponId = equip.weapon;
+        let config = null;
+        if (weaponId) config = lootSystem.getItemConfig(weaponId);
+
+        if (config && config.range > 1) {
+            const mag = Math.sqrt(dx*dx + dy*dy);
+            const vx = mag === 0 ? 0 : dx/mag;
+            const vy = mag === 0 ? 0 : dy/mag;
+            
+            if (vx === 0 && vy === 0) return null;
+
+            return {
+                id: `proj_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                x, y, vx, vy,
+                speed: 15,
+                ownerId,
+                damage: config.damage
+            };
+        }
+        return null;
+    }
 }

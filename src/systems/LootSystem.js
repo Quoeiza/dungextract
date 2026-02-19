@@ -295,4 +295,26 @@ export default class LootSystem {
         }
         return result;
     }
+
+    performDrop(entityId, itemId, source, gridSystem) {
+        let count = 0;
+        if (source === 'inventory') {
+            count = this.removeItemFromInventory(entityId, itemId);
+        } else {
+            const equip = this.getEquipment(entityId);
+            if (equip && equip[source] && equip[source].itemId === itemId) {
+                count = equip[source].count;
+                equip[source] = null;
+            }
+        }
+
+        if (count > 0) {
+            const pos = gridSystem.entities.get(entityId);
+            if (pos) {
+                this.spawnDrop(pos.x, pos.y, itemId, count);
+                return true;
+            }
+        }
+        return false;
+    }
 }
