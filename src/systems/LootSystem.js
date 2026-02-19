@@ -317,4 +317,12 @@ export default class LootSystem {
         }
         return false;
     }
+
+    findNearbyLoot(x, y, facing) {
+        const itemsBelow = this.getItemsAt(x, y);
+        const fx = x + facing.x;
+        const fy = y + facing.y;
+        const itemsFront = this.getItemsAt(fx, fy);
+        return [...itemsBelow, ...itemsFront].filter(l => !l.opened);
+    }
 }

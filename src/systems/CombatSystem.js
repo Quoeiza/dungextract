@@ -289,4 +289,65 @@ export default class CombatSystem extends EventEmitter {
         }
         return null;
     }
+
+    updateProjectiles(dt, projectiles, gridSystem) {
+        const projSpeed = dt / 1000;
+        
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+            const p = projectiles[i];
+            
+            const totalMove = p.speed * projSpeed;
+            const steps = Math.ceil(totalMove / 0.5);
+            const stepMove = totalMove / steps;
+            
+            let hit = false;
+            for (let s = 0; s < steps; s++) {
+                p.x += p.vx * stepMove;
+                p.y += p.vy * stepMove;
+
+                const gridX = Math.round(p.x);
+                const gridY = Math.round(p.y);
+
+                if (!gridSystem.isWalkable(gridX, gridY)) {
+                    projectiles.splice(i, 1);
+                    hit = true;
+                    break;
+                }
+
+                const hitId = gridSystem.getEntityAt(gridX, gridY);
+                if (hitId && hitId !== p.ownerId) {
+                    this.applyDamage(hitId, p.damage, p.ownerId);
+                    projectiles.splice(i, 1);
+                    hit = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    applyConsumableEffect(entityId, effect) {
+        if (!effect) return null;
+        
+        if (effect.effect === 'heal') {
+            const stats = this.getStats(entityId);
+            if (stats) {
+                stats.hp = Math.min(stats.maxHp, stats.hp + effect.value);
+                this.emit('damage', { targetId: entityId, amount: -effect.value, sourceId: entityId, currentHp: stats.hp });
+                return { type: 'heal', value: effect.value };
+            }
+        }
+        return null;
+    }
+
+    calculateCooldown(entityId, baseCooldown) {
+        const stats = this.getStats(entityId);
+        if (!stats) return baseCooldown;
+        
+        let cooldown = baseCooldown;
+        if (stats.attributes) {
+            const agiFactor = Math.max(0.5, 1 - ((stats.attributes.agi - 10) * 0.02));
+            cooldown *= agiFactor;
+        }
+        return cooldown;
+    }
 }

@@ -25,7 +25,6 @@ export default class GameLoop {
             nextActionTime: 0,
             projectiles: [],
             interaction: null,
-            lavaTimer: 0,
             netTimer: 0,
             handshakeInterval: null,
             isExtracting: false,
@@ -568,12 +567,7 @@ export default class GameLoop {
         }
 
         let now = Date.now();
-        let cooldown = this.config.global.globalCooldownMs || 250;
-
-        if (stats && stats.attributes) {
-            const agiFactor = Math.max(0.5, 1 - ((stats.attributes.agi - 10) * 0.02));
-            cooldown *= agiFactor;
-        }
+        let cooldown = this.combatSystem.calculateCooldown(entityId, this.config.global.globalCooldownMs || 250);
 
         const pos = this.gridSystem.entities.get(entityId);
         
@@ -640,21 +634,7 @@ export default class GameLoop {
                 }
             }
 
-            const result = this.gridSystem.moveEntity(entityId, intent.direction.x, intent.direction.y);
-            
-            if (!result.success && result.collision === 'wall') {
-                if (intent.direction.x !== 0 && intent.direction.y !== 0) {
-                    const resX = this.gridSystem.moveEntity(entityId, intent.direction.x, 0);
-                    if (resX.success) {
-                        Object.assign(result, resX);
-                    } else {
-                        const resY = this.gridSystem.moveEntity(entityId, 0, intent.direction.y);
-                        if (resY.success) {
-                            Object.assign(result, resY);
-                        }
-                    }
-                }
-            }
+            const result = this.gridSystem.attemptMoveWithSlide(entityId, intent.direction.x, intent.direction.y);
 
             if (result.success) {
                 if (entityId === this.state.myId) {
@@ -718,11 +698,7 @@ export default class GameLoop {
                 return;
             }
 
-                const itemsBelow = this.lootSystem.getItemsAt(pos.x, pos.y);
-                const fx = pos.x + pos.facing.x;
-                const fy = pos.y + pos.facing.y;
-                const itemsFront = this.lootSystem.getItemsAt(fx, fy);
-                const allItems = [...itemsBelow, ...itemsFront].filter(l => !l.opened);
+                const allItems = this.lootSystem.findNearbyLoot(pos.x, pos.y, pos.facing);
 
                 const chest = allItems.find(i => i.type === 'chest');
                 if (chest && entityId === this.state.myId) {
@@ -748,13 +724,7 @@ export default class GameLoop {
             const dy = gridY - pos.y;
             
             if (dx !== 0 || dy !== 0) {
-                const angle = Math.atan2(dy, dx);
-                const octant = Math.round(8 * angle / (2 * Math.PI) + 8) % 8;
-                const dirs = [
-                    {x:1, y:0}, {x:1, y:1}, {x:0, y:1}, {x:-1, y:1},
-                    {x:-1, y:0}, {x:-1, y:-1}, {x:0, y:-1}, {x:1, y:-1}
-                ];
-                pos.facing = dirs[octant];
+                pos.facing = this.gridSystem.getFacingFromVector(dx, dy);
             }
 
             const proj = this.combatSystem.createProjectile(entityId, pos.x, pos.y, dx, dy, this.lootSystem);
@@ -805,18 +775,13 @@ export default class GameLoop {
 
         if (intent.type === 'USE_ABILITY_SLOT') {
             const quickSlot = `quick${intent.slot + 1}`;
-            const effect = this.lootSystem.consumeItem(entityId, quickSlot);
-            if (effect) {
-                if (effect.effect === 'heal') {
-                    const stats = this.combatSystem.getStats(entityId);
-                    if (stats) {
-                        stats.hp = Math.min(stats.maxHp, stats.hp + effect.value);
-                        this.combatSystem.emit('damage', { targetId: entityId, amount: -effect.value, sourceId: entityId, currentHp: stats.hp });
-                        this.audioSystem.play('pickup', this.gridSystem.entities.get(entityId).x, this.gridSystem.entities.get(entityId).y);
-                        this.uiSystem.renderInventory();
-                        this.uiSystem.updateQuickSlotUI();
-                    }
-                }
+            const itemConfig = this.lootSystem.consumeItem(entityId, quickSlot);
+            
+            const result = this.combatSystem.applyConsumableEffect(entityId, itemConfig);
+            if (result) {
+                this.audioSystem.play('pickup', this.gridSystem.entities.get(entityId).x, this.gridSystem.entities.get(entityId).y);
+                this.uiSystem.renderInventory();
+                this.uiSystem.updateQuickSlotUI();
             }
         }
 
@@ -939,16 +904,9 @@ export default class GameLoop {
                 );
                 this.peerClient.send({ type: 'SNAPSHOT', payload: snapshot });
             }
-        }
 
-        this.state.lavaTimer += dt;
-        if (this.state.lavaTimer >= 1000) {
-            this.state.lavaTimer = 0;
-            for (const [id, pos] of this.gridSystem.entities) {
-                if (this.gridSystem.grid[pos.y][pos.x] === 4) {
-                    this.combatSystem.applyDamage(id, 20, null);
-                }
-            }
+            this.combatSystem.updateProjectiles(dt, this.state.projectiles, this.gridSystem);
+            this.gridSystem.processLavaDamage(dt, this.combatSystem);
         }
 
         if (!this.state.isHost && this.state.connected) {
@@ -997,41 +955,6 @@ export default class GameLoop {
             timerEl.innerText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
             if (this.state.gameTime < 60) timerEl.style.color = '#ff4444';
             else timerEl.style.color = '#fff';
-        }
-
-        if (this.state.isHost) {
-            const projSpeed = dt / 1000;
-            
-            for (let i = this.state.projectiles.length - 1; i >= 0; i--) {
-                const p = this.state.projectiles[i];
-                
-                const totalMove = p.speed * projSpeed;
-                const steps = Math.ceil(totalMove / 0.5);
-                const stepMove = totalMove / steps;
-                
-                let hit = false;
-                for (let s = 0; s < steps; s++) {
-                    p.x += p.vx * stepMove;
-                    p.y += p.vy * stepMove;
-
-                    const gridX = Math.round(p.x);
-                    const gridY = Math.round(p.y);
-
-                    if (!this.gridSystem.isWalkable(gridX, gridY)) {
-                        this.state.projectiles.splice(i, 1);
-                        hit = true;
-                        break;
-                    }
-
-                    const hitId = this.gridSystem.getEntityAt(gridX, gridY);
-                    if (hitId && hitId !== p.ownerId) {
-                        this.combatSystem.applyDamage(hitId, p.damage, p.ownerId);
-                        this.state.projectiles.splice(i, 1);
-                        hit = true;
-                        break;
-                    }
-                }
-            }
         }
 
         if (this.state.interaction) {

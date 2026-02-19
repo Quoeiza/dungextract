@@ -8,6 +8,7 @@ export default class GridSystem {
         this.entities = new Map(); // Map<EntityID, {x, y, facing: {x, y}}>
         this.spatialMap = new Map(); // Map<int, EntityID> - Optimization for O(1) lookups
         this.revision = 0;
+        this.lavaTimer = 0;
     }
 
     initializeDungeon() {
@@ -718,5 +719,46 @@ export default class GridSystem {
             }
         }
         return null;
+    }
+
+    processLavaDamage(dt, combatSystem) {
+        this.lavaTimer += dt;
+        if (this.lavaTimer >= 1000) {
+            this.lavaTimer = 0;
+            for (const [id, pos] of this.entities) {
+                if (this.grid[Math.round(pos.y)][Math.round(pos.x)] === 4) {
+                    combatSystem.applyDamage(id, 20, null);
+                }
+            }
+        }
+    }
+
+    getFacingFromVector(dx, dy) {
+        if (dx === 0 && dy === 0) return {x:0, y:1};
+        const angle = Math.atan2(dy, dx);
+        const octant = Math.round(8 * angle / (2 * Math.PI) + 8) % 8;
+        const dirs = [
+            {x:1, y:0}, {x:1, y:1}, {x:0, y:1}, {x:-1, y:1},
+            {x:-1, y:0}, {x:-1, y:-1}, {x:0, y:-1}, {x:1, y:-1}
+        ];
+        return dirs[octant];
+    }
+
+    attemptMoveWithSlide(entityId, dx, dy) {
+        let result = this.moveEntity(entityId, dx, dy);
+        
+        if (!result.success && result.collision === 'wall') {
+            if (dx !== 0 && dy !== 0) {
+                const resX = this.moveEntity(entityId, dx, 0);
+                if (resX.success) {
+                    return resX;
+                }
+                const resY = this.moveEntity(entityId, 0, dy);
+                if (resY.success) {
+                    return resY;
+                }
+            }
+        }
+        return result;
     }
 }
