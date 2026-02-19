@@ -599,4 +599,124 @@ export default class GridSystem {
         }
         return null; // No path found
     }
+
+    getStraightPath(x0, y0, x1, y1) {
+        const path = [];
+        let x = Math.round(x0);
+        let y = Math.round(y0);
+        const tx = Math.round(x1);
+        const ty = Math.round(y1);
+
+        const dx = Math.abs(tx - x);
+        const dy = Math.abs(ty - y);
+        const sx = (x < tx) ? 1 : -1;
+        const sy = (y < ty) ? 1 : -1;
+        let err = dx - dy;
+
+        let iterations = 0;
+        const maxIterations = 100; 
+
+        while (true) {
+            if (x === tx && y === ty) break;
+            if (iterations++ > maxIterations) break;
+
+            let e2 = 2 * err;
+            if (e2 > -dy) { err -= dy; x += sx; }
+            if (e2 < dx) { err += dx; y += sy; }
+
+            path.push({ x, y });
+        }
+        return path;
+    }
+
+    findNearestUnexplored(startX, startY, exploredSet) {
+        const visited = new Set();
+        const queue = [{x: Math.round(startX), y: Math.round(startY)}];
+        
+        let loops = 0;
+        while(queue.length > 0 && loops < 2000) { // Safety limit
+            loops++;
+            const curr = queue.shift();
+            const key = `${curr.x},${curr.y}`;
+            
+            if (visited.has(key)) continue;
+            visited.add(key);
+
+            // If this tile is NOT explored, it's our target
+            if (!exploredSet.has(key) && this.isWalkable(curr.x, curr.y)) {
+                return curr;
+            }
+
+            // Neighbors
+            const dirs = [{x:0,y:1},{x:0,y:-1},{x:1,y:0},{x:-1,y:0}];
+            for (const d of dirs) {
+                const nx = curr.x + d.x;
+                const ny = curr.y + d.y;
+                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+                    queue.push({x: nx, y: ny});
+                }
+            }
+        }
+        return null;
+    }
+
+    getStraightPath(x0, y0, x1, y1) {
+        const path = [];
+        let x = Math.round(x0);
+        let y = Math.round(y0);
+        const tx = Math.round(x1);
+        const ty = Math.round(y1);
+
+        const dx = Math.abs(tx - x);
+        const dy = Math.abs(ty - y);
+        const sx = (x < tx) ? 1 : -1;
+        const sy = (y < ty) ? 1 : -1;
+        let err = dx - dy;
+
+        let iterations = 0;
+        const maxIterations = 100; 
+
+        while (true) {
+            if (x === tx && y === ty) break;
+            if (iterations++ > maxIterations) break;
+
+            let e2 = 2 * err;
+            if (e2 > -dy) { err -= dy; x += sx; }
+            if (e2 < dx) { err += dx; y += sy; }
+
+            path.push({ x, y });
+        }
+        return path;
+    }
+
+    findNearestUnexplored(startX, startY, exploredSet) {
+        const visited = new Set();
+        const queue = [{x: Math.round(startX), y: Math.round(startY)}];
+        
+        let loops = 0;
+        while(queue.length > 0 && loops < 2000) { // Safety limit
+            loops++;
+            const curr = queue.shift();
+            const key = `${curr.x},${curr.y}`;
+            
+            if (visited.has(key)) continue;
+            visited.add(key);
+
+            // If this tile is NOT explored, it's our target
+            if (!exploredSet.has(key) && this.isWalkable(curr.x, curr.y)) {
+                return curr;
+            }
+
+            // Neighbors
+            const dirs = [{x:0,y:1},{x:0,y:-1},{x:1,y:0},{x:-1,y:0}];
+            for (const d of dirs) {
+                const nx = curr.x + d.x;
+                const ny = curr.y + d.y;
+                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+                    queue.push({x: nx, y: ny});
+                }
+            }
+        }
+        return null;
+    }
 }
