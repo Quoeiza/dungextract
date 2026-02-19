@@ -67,10 +67,10 @@ export default class AssetSystem {
     }
 
     async loadAll() {
-        const global = await this.loadConfig('./src/config/global.json');
-        const items = await this.loadConfig('./src/config/items.json');
-        const enemies = await this.loadConfig('./src/config/enemies.json');
-        const net = await this.loadConfig('./src/config/networking.json');
+        const global = await this.loadConfig('./scripts/global.json');
+        const items = await this.loadConfig('./scripts/items.json');
+        const enemies = await this.loadConfig('./scripts/enemies.json');
+        const net = await this.loadConfig('./scripts/networking.json');
         
         return { global, items, enemies, net };
     }

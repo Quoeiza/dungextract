@@ -1,4 +1,4 @@
-import GameLoop from './core/GameLoop.js';
+import GameLoop from './GameLoop.js';
 
 const game = new GameLoop();
 window.game = game;

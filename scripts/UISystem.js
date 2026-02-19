@@ -1,5 +1,5 @@
-import { setupLobby } from '../ui/Lobby.js';
-import { InventoryUI } from '../ui/InventoryUI.js';
+import { setupLobby } from './Lobby.js';
+import { InventoryUI } from './InventoryUI.js';
 
 export default class UISystem {
     constructor(game) {

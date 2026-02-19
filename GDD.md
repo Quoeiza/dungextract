@@ -46,7 +46,7 @@ The primary target audience is players who enjoy competitive, session-based game
 | Hosting | GitHub Pages | Zero-cost, decentralized hosting solution. |
 | Database | PostgresSQL | Player account details and inventory storage. |
 
-### **The Logic Layer (`/src/`)**
+### **The Logic Layer (`/scripts/`)**
 
 * **ES6 Modules:** All files must use `export default` or named exports. No inline scripts in HTML.  
 * **State Management:**  

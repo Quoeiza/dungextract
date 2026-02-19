@@ -1,16 +1,16 @@
-import AssetSystem from '../systems/AssetSystem.js';
+import AssetSystem from './AssetSystem.js';
 import InputManager from './InputManager.js';
 import Ticker from './Ticker.js';
-import GridSystem from '../systems/GridSystem.js';
-import RenderSystem from '../systems/RenderSystem.js';
-import CombatSystem from '../systems/CombatSystem.js';
-import LootSystem from '../systems/LootSystem.js';
-import PeerClient from '../network/PeerClient.js';
-import SyncManager from '../network/SyncManager.js';
-import AudioSystem from '../systems/AudioSystem.js';
-import Database from '../services/Database.js';
-import UISystem from '../systems/UISystem.js';
-import AISystem from '../systems/AISystem.js';
+import GridSystem from './GridSystem.js';
+import RenderSystem from './RenderSystem.js';
+import CombatSystem from './CombatSystem.js';
+import LootSystem from './LootSystem.js';
+import PeerClient from './PeerClient.js';
+import SyncManager from './SyncManager.js';
+import AudioSystem from './AudioSystem.js';
+import Database from './Database.js';
+import UISystem from './UISystem.js';
+import AISystem from './AISystem.js';
 
 export default class GameLoop {
     constructor() {

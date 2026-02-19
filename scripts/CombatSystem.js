@@ -1,4 +1,4 @@
-import EventEmitter from '../core/EventEmitter.js';
+import EventEmitter from './EventEmitter.js';
 
 export default class CombatSystem extends EventEmitter {
     constructor(enemiesConfig) {
