@@ -1,5 +1,5 @@
 /**
- * @file TileMapManager.js
+ * @file TileMapSystem.js
  * Manages rendering using 2.5D Depth Logic.
  * Handles Wall Faces, Wall Bases, and Roof/Void Overlays.
  */
@@ -234,7 +234,7 @@ const LIQUIDS_DATA = [
     { id: 119, w: [1, 0, 0, 0, 0, 0, 1, 1] }
 ];
 
-export class TileMapManager {
+export class TileMapSystem {
     constructor(config = dungeonTilesetConfig) {
         this.config = config;
         this.tileSize = config.tileSize;

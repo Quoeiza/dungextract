@@ -1,4 +1,4 @@
-import { TileMapManager, dungeonTilesetConfig } from './TileMapManager.js';
+import { TileMapSystem, dungeonTilesetConfig } from './TileMapSystem.js';
 
 const noise = (x, y) => {
     return Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
@@ -27,8 +27,8 @@ export default class RenderSystem {
 
         this.resize(); // Initialize sizes
 
-        // TileMap Manager for sprite-based rendering
-        this.tileMapManager = new TileMapManager(dungeonTilesetConfig);
+        // TileMap System for sprite-based rendering
+        this.tileMapSystem = new TileMapSystem(dungeonTilesetConfig);
 
         // Camera
         this.camera = { x: 0, y: 0, isReady: false };
@@ -78,7 +78,7 @@ export default class RenderSystem {
         }).catch(err => console.error("Failed to load actor assets:", err));
 
         // After setting the loader, immediately start loading the tilemap assets
-        const p2 = this.tileMapManager.loadAssets(loader).catch(err => {
+        const p2 = this.tileMapSystem.loadAssets(loader).catch(err => {
             console.error("Failed to load tilemap assets:", err);
         });
 
@@ -143,12 +143,12 @@ export default class RenderSystem {
         const viewBounds = { startCol: 0, endCol: w - 1, startRow: 0, endRow: h - 1 };
 
         // 1. Bottom Layer: Floors and Walls
-        this.tileMapManager.drawFloor(ctxB, grid, viewBounds);
+        this.tileMapSystem.drawFloor(ctxB, grid, viewBounds);
         
-        this.tileMapManager.drawWalls(ctxW, grid, viewBounds);
+        this.tileMapSystem.drawWalls(ctxW, grid, viewBounds);
 
         // 2. Top Layer: Roofs
-        this.tileMapManager.drawRoof(ctxT, grid, viewBounds);
+        this.tileMapSystem.drawRoof(ctxT, grid, viewBounds);
 
         this.lastGridRevision = this.gridSystem ? this.gridSystem.revision : -1;
     }
@@ -173,7 +173,7 @@ export default class RenderSystem {
         this.ctx.drawImage(this.staticCacheBottom, 0, 0);
 
         // --- Pass 1.5: Draw Animated Liquids (Water) ---
-        this.tileMapManager.drawLiquids(this.ctx, grid, viewBounds, Date.now());
+        this.tileMapSystem.drawLiquids(this.ctx, grid, viewBounds, Date.now());
         this.ctx.restore();
 
         // --- Pass 2: Draw procedural floor tiles ---
@@ -1133,8 +1133,8 @@ export default class RenderSystem {
         };
 
         // Predicates for Meshing
-        const isCaster = (x, y) => this.gridSystem ? !this.gridSystem.isWalkable(x, y) : (this.tileMapManager.getTileVal(grid, x, y) === 1);
-        const isMasker = (x, y) => (this.tileMapManager.getTileVal(grid, x, y) === 1) || this.tileMapManager.shouldDrawVoid(grid, x, y);
+        const isCaster = (x, y) => this.gridSystem ? !this.gridSystem.isWalkable(x, y) : (this.tileMapSystem.getTileVal(grid, x, y) === 1);
+        const isMasker = (x, y) => (this.tileMapSystem.getTileVal(grid, x, y) === 1) || this.tileMapSystem.shouldDrawVoid(grid, x, y);
 
         mesh(this.shadowCasters, isCaster);
         mesh(this.shadowMaskers, isMasker);
