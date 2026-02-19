@@ -29,7 +29,8 @@ export default class GameLoop {
             handshakeInterval: null,
             isEscaping: false,
             autoPath: [],
-            chaseTargetId: null
+            chaseTargetId: null,
+            gameOver: false
         };
         this.database = new Database();
         this.playerData = { name: 'Player', gold: 0, class: 'Fighter' };
@@ -285,7 +286,9 @@ export default class GameLoop {
                 
                 if (stats && stats.isPlayer) {
                     setTimeout(() => {
-                        this.respawnAsMonster(entityId);
+                        if (!this.state.gameOver) {
+                            this.respawnAsMonster(entityId);
+                        }
                     }, 3000);
                 } else {
                     setTimeout(() => {
@@ -798,7 +801,9 @@ export default class GameLoop {
             this.checkHumansEscaped();
             
             setTimeout(() => {
-                this.respawnAsMonster(entityId);
+                if (!this.state.gameOver) {
+                    this.respawnAsMonster(entityId);
+                }
             }, 3000);
         }
 
@@ -811,6 +816,7 @@ export default class GameLoop {
         if (!this.state.isHost) return;
 
         if (this.combatSystem.getHumanCount() === 0) {
+            this.state.gameOver = true;
             const msg = "All Humans Eliminated";
             this.peerClient.send({ type: 'HUMANS_ESCAPED', payload: { message: msg } });
             this.uiSystem.showHumansEscaped(msg);

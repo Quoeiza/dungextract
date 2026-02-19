@@ -74,7 +74,8 @@ export default class RenderSystem {
         // Load Actor Sprites
         const p1 = loader.loadImages({
             'knight': './assets/images/actors/rogue.png',
-            'skelly': './assets/images/actors/skelly.png'
+            'skelly': './assets/images/actors/skelly.png',
+            'slime': './assets/images/actors/slime_green.png'
         }).catch(err => console.error("Failed to load actor assets:", err));
 
         // After setting the loader, immediately start loading the tilemap assets
@@ -626,6 +627,7 @@ export default class RenderSystem {
             let spriteKey = null;
             if (type === 'player') spriteKey = 'knight';
             if (type === 'skeleton') spriteKey = 'skelly';
+            if (type === 'slime') spriteKey = 'slime';
             
             const img = this.assetLoader ? this.assetLoader.getImage(spriteKey) : null;
 
@@ -710,54 +712,6 @@ export default class RenderSystem {
                 }
 
                 ctx.restore();
-            } else {
-                // --- Fallback Procedural Rendering ---
-
-                // Body
-                const isMe = (id === localPlayerId);
-                const isFlashing = (now - visual.flashStart < 100);
-
-                // Note: Fallback shapes don't support the new dissolve/idle effects fully for brevity
-                if (isFlashing) {
-                    ctx.fillStyle = '#FFFFFF';
-                } else {
-                    let baseColor = isMe ? '#4a6' : '#a44';
-                    
-                    // Monster override for self
-                    if (isMe && pos.team === 'monster') {
-                        baseColor = '#ff3333'; // Brighter red for self-monster
-                    }
-
-                    // Monster Type Overrides
-                    if (pos.team === 'monster') {
-                        if (pos.type === 'slime') baseColor = '#88cc44';
-                        if (pos.type === 'skeleton') baseColor = '#dddddd';
-                    }
-                    
-                    // Gradient Body
-                    const grad = ctx.createRadialGradient(screenX + (this.tileSize * 0.5), screenY + (this.tileSize * 0.5), this.tileSize * 0.06, screenX + (this.tileSize * 0.5), screenY + (this.tileSize * 0.5), this.tileSize * 0.375);
-                    grad.addColorStop(0, isMe && pos.team !== 'monster' ? '#6c8' : '#c66');
-                    grad.addColorStop(1, baseColor);
-                    
-                    // Simple shape differentiation
-                    if (pos.type === 'slime') {
-                        // Slimes are slightly translucent
-                        ctx.globalAlpha = 0.9;
-                    }
-                    ctx.fillStyle = grad;
-                }
-
-                ctx.beginPath();
-                ctx.arc(screenX + (this.tileSize * 0.5), screenY + (this.tileSize * 0.5), this.tileSize * 0.3125, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Draw facing indicator
-                if (pos.facing) {
-                    const indicatorX = screenX + (this.tileSize * 0.5) + (pos.facing.x * (this.tileSize * 0.375));
-                    const indicatorY = screenY + (this.tileSize * 0.5) + (pos.facing.y * (this.tileSize * 0.375));
-                    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-                    ctx.fillRect(indicatorX - (this.tileSize * 0.06), indicatorY - (this.tileSize * 0.06), this.tileSize * 0.125, this.tileSize * 0.125);
-                }
             }
             
             ctx.globalAlpha = 1.0; // Reset
@@ -1252,6 +1206,7 @@ export default class RenderSystem {
                     let spriteKey = null;
                     if (type === 'player') spriteKey = 'knight';
                     if (type === 'skeleton') spriteKey = 'skelly';
+                    if (type === 'slime') spriteKey = 'slime';
                     
                     const img = this.assetLoader ? this.assetLoader.getImage(spriteKey) : null;
 

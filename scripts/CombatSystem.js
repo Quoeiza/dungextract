@@ -195,7 +195,7 @@ export default class CombatSystem extends EventEmitter {
         return bestId;
     }
 
-    getSurvivorCount() {
+    getHumanCount() {
         let count = 0;
         for (const stats of this.stats.values()) {
             if (stats.isPlayer && stats.team === 'player') count++;
