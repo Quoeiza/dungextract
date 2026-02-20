@@ -1,6 +1,20 @@
 export default class LootSystem {
     constructor(itemsConfig) {
         this.itemsConfig = itemsConfig;
+        this.itemMap = new Map();
+
+        // Index items for fast lookup and inject ID/Type
+        const processCategory = (category, type) => {
+            if (!category) return;
+            for (const [key, item] of Object.entries(category)) {
+                this.itemMap.set(key, { ...item, id: key, type });
+            }
+        };
+
+        processCategory(itemsConfig.weapons, 'weapon');
+        processCategory(itemsConfig.armor, 'armor');
+        processCategory(itemsConfig.consumables, 'consumable');
+
         this.worldLoot = new Map(); // ID -> { itemId, x, y }
         this.inventories = new Map(); // EntityID -> [items]
         this.equipment = new Map(); // EntityID -> { weapon: null, armor: null, quick1: null, quick2: null, quick3: null }
@@ -185,10 +199,7 @@ export default class LootSystem {
     }
 
     getItemConfig(itemId) {
-        if (this.itemsConfig.weapons[itemId]) return this.itemsConfig.weapons[itemId];
-        if (this.itemsConfig.armor && this.itemsConfig.armor[itemId]) return this.itemsConfig.armor[itemId];
-        if (this.itemsConfig.consumables[itemId]) return this.itemsConfig.consumables[itemId];
-        return null;
+        return this.itemMap.get(itemId) || null;
     }
 
     getName(itemId) {
@@ -197,10 +208,8 @@ export default class LootSystem {
     }
 
     getItemType(itemId) {
-        if (this.itemsConfig.weapons[itemId]) return 'weapon';
-        if (this.itemsConfig.armor && this.itemsConfig.armor[itemId]) return 'armor';
-        if (this.itemsConfig.consumables[itemId]) return 'consumable';
-        return 'misc';
+        const item = this.itemMap.get(itemId);
+        return item ? item.type : 'misc';
     }
 
     getInventory(entityId) {
