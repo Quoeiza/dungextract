@@ -431,7 +431,8 @@ input, select {
     height: 40px;
     background-color: #555; /* Placeholder */
     border-radius: 4px;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: grab;
     position: relative; /* For item count */
 }
 

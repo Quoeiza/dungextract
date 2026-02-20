@@ -51,10 +51,41 @@ export default class LootSystem {
 
     spawnLoot(x, y, itemId, count = 1, type = 'chest', gold = 0) {
         const id = `loot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const loot = { id, itemId, count, x, y, opened: false, type, gold };
+        const itemData = this.generateItem(itemId);
+        const loot = { id, itemId, count, x, y, opened: false, type, gold, stats: itemData.stats, bonuses: itemData.bonuses };
         this.worldLoot.set(id, loot);
         this._addToSpatial(loot);
         return id;
+    }
+
+    generateItem(itemId) {
+        const config = this.getItemConfig(itemId);
+        if (!config) return { itemId };
+
+        const result = { itemId, stats: {}, bonuses: {} };
+        
+        // Generate Base Stats
+        if (config.stats) {
+            for (const [key, val] of Object.entries(config.stats)) {
+                if (typeof val === 'object' && val.min !== undefined && val.max !== undefined) {
+                    result.stats[key] = Math.floor(Math.random() * (val.max - val.min + 1)) + val.min;
+                } else {
+                    result.stats[key] = val;
+                }
+            }
+        }
+
+        // Generate Bonuses
+        if (config.possibleBonuses) {
+            for (const bonus of config.possibleBonuses) {
+                if (Math.random() < bonus.chance) {
+                    const val = Math.floor(Math.random() * (bonus.max - bonus.min + 1)) + bonus.min;
+                    result.bonuses[bonus.stat] = val;
+                }
+            }
+        }
+
+        return result;
     }
 
     spawnDrop(x, y, itemId, count = 1) {
@@ -127,7 +158,7 @@ export default class LootSystem {
         if (!loot || loot.opened) return null;
 
         loot.opened = true;
-        this.addItemToEntity(entityId, loot.itemId, loot.count || 1);
+        this.addItemToEntity(entityId, loot.itemId, loot.count || 1, loot);
         return { itemId: loot.itemId, count: loot.count || 1, gold: loot.gold || 0 };
     }
 
@@ -137,11 +168,11 @@ export default class LootSystem {
         
         this._removeFromSpatial(loot);
         this.worldLoot.delete(lootId);
-        this.addItemToEntity(entityId, loot.itemId, loot.count || 1);
+        this.addItemToEntity(entityId, loot.itemId, loot.count || 1, loot);
         return { itemId: loot.itemId, count: loot.count || 1, gold: loot.gold || 0 };
     }
 
-    addItemToEntity(entityId, itemId, count) {
+    addItemToEntity(entityId, itemId, count, sourceLoot = null) {
         const config = this.getItemConfig(itemId);
         const isStackable = config && config.stackable;
         const maxStack = (config && config.maxStack) || 1;
@@ -150,6 +181,12 @@ export default class LootSystem {
 
         let remaining = count;
         const type = this.getItemType(itemId);
+
+        // Prepare item object (preserve stats if they exist on source)
+        const newItem = { itemId, count: 1 };
+        if (sourceLoot && sourceLoot.stats) newItem.stats = sourceLoot.stats;
+        if (sourceLoot && sourceLoot.bonuses) newItem.bonuses = sourceLoot.bonuses;
+        if (!newItem.stats && !isStackable) Object.assign(newItem, this.generateItem(itemId));
 
         // 1. Try to stack/auto-equip in Quick Slots (if consumable)
         if (type === 'consumable') {
@@ -174,7 +211,7 @@ export default class LootSystem {
 
         // 2. Auto-equip Weapon/Armor if slot is empty
         if ((type === 'weapon' || type === 'armor') && !equip[type]) {
-            equip[type] = { itemId, count: 1 };
+            equip[type] = newItem;
             remaining--;
             if (remaining <= 0) return;
         }
@@ -194,7 +231,8 @@ export default class LootSystem {
 
         // 4. Add new entry to Inventory
         if (remaining > 0) {
-            inv.push({ itemId, count: remaining });
+            newItem.count = remaining;
+            inv.push(newItem);
         }
     }
 
@@ -290,12 +328,16 @@ export default class LootSystem {
         let defense = 0;
 
         if (equip.weapon) {
-            const item = this.getItemConfig(equip.weapon.itemId);
-            if (item) damage += (item.damage || 0);
+            if (equip.weapon.stats && equip.weapon.stats.damage) {
+                damage += equip.weapon.stats.damage;
+            } else {
+                const item = this.getItemConfig(equip.weapon.itemId);
+                if (item && item.damage) damage += item.damage;
+            }
         }
         if (equip.armor) {
-            const item = this.getItemConfig(equip.armor.itemId);
-            if (item) defense += (item.defense || 0);
+            if (equip.armor.stats && equip.armor.stats.defense) defense += equip.armor.stats.defense;
+            else { const item = this.getItemConfig(equip.armor.itemId); if (item) defense += (item.defense || 0); }
         }
         return { damage, defense };
     }

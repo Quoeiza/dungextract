@@ -187,6 +187,18 @@ export default class GameLoop {
         }
     }
 
+    handleUnequipItem(slot) {
+        if (!this.state.isHost) {
+            this.peerClient.send({ type: 'UNEQUIP_ITEM', payload: { slot } });
+            return;
+        }
+        const success = this.lootSystem.unequipItem(this.state.myId, slot);
+        if (success) {
+            this.uiSystem.renderInventory();
+            this.audioSystem.play('pickup');
+        }
+    }
+
     handleInteractWithLoot(loot) {
         if (this.state.isHost) {
             this.processLootInteraction(this.state.myId, loot);
@@ -372,6 +384,10 @@ export default class GameLoop {
                     this.handleEquipItem(data.payload.itemId, data.payload.slot);
                     this.sendInventoryUpdate(sender);
                 }
+                if (data.type === 'UNEQUIP_ITEM') {
+                    this.handleUnequipItem(data.payload.slot);
+                    this.sendInventoryUpdate(sender);
+                }
                 if (data.type === 'DROP_ITEM') {
                     this.handleDropItem(data.payload.itemId, data.payload.source);
                     this.sendInventoryUpdate(sender);
@@ -460,6 +476,11 @@ export default class GameLoop {
                 this.combatSystem.registerEntity(peerId, 'player', true, metadata.class || 'Fighter', metadata.name || 'Unknown');
                 const stats = this.combatSystem.getStats(peerId);
                 if (stats) stats.gold = metadata.gold || 0;
+
+                // Starter Items for Client
+                this.lootSystem.addItemToEntity(peerId, 'sword_basic', 1);
+                this.lootSystem.addItemToEntity(peerId, 'armor_leather', 1);
+                this.sendInventoryUpdate(peerId);
             } else {
                 this.state.handshakeInterval = setInterval(() => {
                     if (!this.state.connected) this.peerClient.send({ type: 'HELLO' });
@@ -481,6 +502,11 @@ export default class GameLoop {
         this.combatSystem.registerEntity(id, 'player', true, this.playerData.class, this.playerData.name);
         const stats = this.combatSystem.getStats(id);
         if (stats) stats.gold = this.playerData.gold;
+        
+        // Starter Items for Host
+        this.lootSystem.addItemToEntity(id, 'sword_basic', 1);
+        this.lootSystem.addItemToEntity(id, 'armor_leather', 1);
+
         this.state.gameTime = this.config.global.escapeTimeSeconds || 600;
     }
 

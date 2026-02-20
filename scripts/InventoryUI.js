@@ -2,15 +2,33 @@ export class InventoryUI {
     constructor(lootSystem) {
         this.lootSystem = lootSystem;
         this.handleEquipItem = null;
+        this.handleUnequipItem = null;
     }
 
     init() {
         this._setupSlotDrop(document.getElementById('slot-weapon'), 'weapon');
         this._setupSlotDrop(document.getElementById('slot-armor'), 'armor');
+
+        const grid = document.getElementById('inventory-grid');
+        if (grid) {
+            grid.addEventListener('dragover', (e) => e.preventDefault());
+            grid.addEventListener('drop', (e) => {
+                e.preventDefault();
+                try {
+                    const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                    if (data && data.source && data.source !== 'inventory') {
+                        if (this.handleUnequipItem) this.handleUnequipItem(data.source);
+                    }
+                } catch (err) {
+                    console.warn("Invalid drop data", err);
+                }
+            });
+        }
     }
 
-    setCallbacks(handleEquipItem) {
+    setCallbacks(handleEquipItem, handleUnequipItem) {
         this.handleEquipItem = handleEquipItem;
+        this.handleUnequipItem = handleUnequipItem;
     }
 
     renderInventory(myId) {
@@ -38,17 +56,12 @@ export class InventoryUI {
                 const type = this.lootSystem.getItemType(item.itemId);
                 icon.style.backgroundColor = type === 'weapon' ? '#d65' : type === 'armor' ? '#56d' : '#5d5';
                 
-                const config = this.lootSystem.getItemConfig(item.itemId);
-                let tooltip = config ? config.name : item.itemId;
-                if (config) {
-                    if (config.damage) tooltip += `
-Damage: ${config.damage}`;
-                    if (config.defense) tooltip += `
-Defense: ${config.defense}`;
-                    if (config.effect) tooltip += `
-Effect: ${config.effect} (${config.value})`;
-                }
-                icon.title = tooltip;
+                // Tooltip Events
+                const showTip = (e) => this.showTooltip(e, item);
+                icon.addEventListener('mouseenter', showTip);
+                icon.addEventListener('mousemove', showTip);
+                icon.addEventListener('mouseleave', () => this.hideTooltip());
+                icon.addEventListener('click', (e) => { e.stopPropagation(); showTip(e); });
 
                 if (item.count > 1) {
                     const countEl = document.createElement('span');
@@ -62,6 +75,7 @@ Effect: ${config.effect} (${config.value})`;
 
                 cell.addEventListener('dragstart', (e) => {
                     e.dataTransfer.setData('text/plain', JSON.stringify({ itemId: item.itemId, source: 'inventory' }));
+                    this.hideTooltip();
                 });
             }
             grid.appendChild(cell);
@@ -78,15 +92,12 @@ Effect: ${config.effect} (${config.value})`;
                 icon.className = 'item-icon';
                 icon.style.backgroundColor = slotName.startsWith('quick') ? '#5d5' : (slotName === 'weapon' ? '#d65' : '#56d');
                 
-                const config = this.lootSystem.getItemConfig(item.itemId);
-                let tooltip = config ? config.name : item.itemId;
-                if (config) {
-                    if (config.damage) tooltip += `
-Damage: ${config.damage}`;
-                    if (config.defense) tooltip += `
-Defense: ${config.defense}`;
-                }
-                icon.title = tooltip;
+                // Tooltip Events
+                const showTip = (e) => this.showTooltip(e, item);
+                icon.addEventListener('mouseenter', showTip);
+                icon.addEventListener('mousemove', showTip);
+                icon.addEventListener('mouseleave', () => this.hideTooltip());
+                icon.addEventListener('click', (e) => { e.stopPropagation(); showTip(e); });
 
                 if (item.count > 1) {
                     const countEl = document.createElement('span');
@@ -97,12 +108,13 @@ Defense: ${config.defense}`;
 
                 el.appendChild(icon);
                 
-                el.draggable = true;
-                el.addEventListener('dragstart', (e) => {
+                icon.draggable = true;
+                icon.addEventListener('dragstart', (e) => {
                     e.dataTransfer.setData('text/plain', JSON.stringify({ itemId: item.itemId, source: slotName }));
+                    this.hideTooltip();
                 });
             } else {
-                el.draggable = false;
+                // Container is not draggable, only the icon inside
             }
         };
 
@@ -160,5 +172,97 @@ Defense: ${config.defense}`;
                 this.handleEquipItem(data.itemId, targetSlot);
             }
         });
+    }
+
+    showTooltip(e, item) {
+        const tooltip = document.getElementById('game-tooltip');
+        if (!tooltip) return;
+        
+        const text = this._generateTooltip(item);
+        tooltip.innerHTML = text.replace(/\n/g, '<br>');
+        tooltip.style.display = 'block';
+        
+        // Positioning
+        let x = e.clientX + 15;
+        let y = e.clientY + 15;
+        
+        // Bounds check
+        if (x + 220 > window.innerWidth) x = e.clientX - 225;
+        if (y + 150 > window.innerHeight) y = e.clientY - 160;
+
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = y + 'px';
+    }
+
+    hideTooltip() {
+        const tooltip = document.getElementById('game-tooltip');
+        if (tooltip) tooltip.style.display = 'none';
+    }
+
+    _generateTooltip(item) {
+        const config = this.lootSystem.getItemConfig(item.itemId);
+        if (!config) return item.itemId;
+
+        const type = this.lootSystem.getItemType(item.itemId);
+        const stats = item.stats || config.stats || config; // Fallback to config if no instance stats
+        const bonuses = item.bonuses || {};
+        let tooltip = `${config.name}`;
+
+        const getSpeedLabel = (ms) => {
+            if (ms <= 250) return `Very Fast (${ms}ms)`;
+            if (ms <= 500) return `Fast (${ms}ms)`;
+            if (ms <= 750) return `Normal (${ms}ms)`;
+            if (ms <= 1000) return `Slow (${ms}ms)`;
+            return `Very Slow (${ms}ms)`;
+        };
+
+        if (type === 'weapon') {
+            const dmg = stats.damage || 0;
+            const speed = stats.attackSpeed || 1000;
+            
+            // Calculate Bonus Damage for DPS
+            let bonusDmg = 0;
+            for (const key in bonuses) {
+                if (key.includes('Damage')) bonusDmg += bonuses[key];
+            }
+
+            // DPS = (Avg Damage + Bonuses) * (1000 / Speed)
+            // Prompt requested: "DPS is a calculation of the damage average plus bonuses multiplied by the Attack Speed"
+            // Assuming standard DPS logic: Damage per Second.
+            const dps = ((dmg + bonusDmg) * (1000 / speed)).toFixed(1);
+
+            tooltip += `\nDPS: ${dps}`;
+            tooltip += `\nDamage: ${dmg}`;
+            tooltip += `\nAttack Speed: ${getSpeedLabel(speed)}`;
+            tooltip += `\nDamage Type: ${stats.damageType || 'Physical'}`;
+        } else if (type === 'armor') {
+            const def = stats.defense || 0;
+            const dr = stats.damageReduction || 0;
+            const weight = stats.speedPenalty || 0;
+            
+            let weightLabel = 'Light';
+            if (weight >= 250) weightLabel = 'Heavy';
+            else if (weight >= 125) weightLabel = 'Medium';
+
+            tooltip += `\nDamage Reduction: ${dr}%`;
+            tooltip += `\nDefence: ${def}`;
+            tooltip += `\nWeight: ${weightLabel}`;
+            
+            // Resistances
+            const resists = [];
+            for (const key in bonuses) {
+                if (key.includes('Resist')) resists.push(`${key.replace('Resist', '')}: +${bonuses[key]}`);
+            }
+            if (resists.length > 0) tooltip += `\nResistances: ${resists.join(', ')}`;
+        } else if (type === 'consumable') {
+             if (config.effect) tooltip += `\nEffect: ${config.effect} (${config.value})`;
+        }
+
+        // General Bonuses
+        for (const [k, v] of Object.entries(bonuses)) {
+            if (!k.includes('Resist')) tooltip += `\nBonus: +${v} ${k}`;
+        }
+
+        return tooltip;
     }
 }

@@ -49,7 +49,7 @@ export default class CombatSystem extends EventEmitter {
             stats = { 
                 hp: cfg.hp, maxHp: cfg.hp, damage: cfg.damage, isPlayer, type, lastActionTime: 0, team: 'monster', aiState: 'IDLE', targetLastPos: null, memoryTimer: 0, invisible: false, name: cfg.name || type, attributes: { str: 10, agi: 10, will: 10 },
                 attackSpeed: cfg.attackSpeed || 4,
-                moveSpeed: cfg.moveSpeed || 4
+                moveSpeed: cfg.moveSpeed || 1000
             };
         } else if (isPlayer && this.classes[playerClass]) {
             // Apply Class Stats
@@ -131,6 +131,14 @@ export default class CombatSystem extends EventEmitter {
         if (this.lootSystem) {
             const mods = this.lootSystem.getStatsModifier(targetId);
             if (mods.defense > 0) {
+                // Apply Damage Reduction % from Armor Stats first if available
+                const equip = this.lootSystem.getEquipment(targetId);
+                if (equip && equip.armor && equip.armor.stats && equip.armor.stats.damageReduction) {
+                    const dr = equip.armor.stats.damageReduction;
+                    finalDamage = Math.floor(finalDamage * (1 - (dr / 100)));
+                }
+                
+                // Apply Flat Defense
                 finalDamage = Math.max(1, finalDamage - mods.defense);
             }
         }
@@ -239,7 +247,7 @@ export default class CombatSystem extends EventEmitter {
 
         const equip = lootSystem.getEquipment(attackerId);
         const weapon = equip.weapon;
-        let config = null;
+        let config = weapon ? (weapon.stats || lootSystem.getItemConfig(weapon.itemId)) : null;
         if (weapon) config = lootSystem.getItemConfig(weapon.itemId);
 
         if (config && config.range > 1) {
@@ -264,6 +272,8 @@ export default class CombatSystem extends EventEmitter {
         let damage = 5;
         if (attackerStats && attackerStats.team === 'monster') {
             damage = attackerStats.damage;
+        } else if (weapon && weapon.stats && weapon.stats.damage) {
+            damage = weapon.stats.damage;
         } else if (config && config.damage) {
             damage = config.damage;
         }
@@ -373,7 +383,16 @@ export default class CombatSystem extends EventEmitter {
             const agiFactor = Math.max(0.5, 1 - ((stats.attributes.agi - 10) * 0.02));
             cooldown *= agiFactor;
         }
-        return cooldown;
+
+        // Apply Armor Weight
+        if (this.lootSystem) {
+            const equip = this.lootSystem.getEquipment(entityId);
+            if (equip && equip.armor && equip.armor.stats && equip.armor.stats.speedPenalty !== undefined) {
+                cooldown += equip.armor.stats.speedPenalty;
+            }
+        }
+
+        return Math.max(250, cooldown);
     }
 
     isFriendly(id1, id2) {

@@ -6,7 +6,10 @@ export default class UISystem {
         this.game = game;
         this.lastTooltipUpdate = 0;
         this.inventoryUI = new InventoryUI(this.game.lootSystem);
-        this.inventoryUI.setCallbacks((itemId, slot) => this.game.handleEquipItem(itemId, slot));
+        this.inventoryUI.setCallbacks(
+            (itemId, slot) => this.game.handleEquipItem(itemId, slot),
+            (slot) => this.game.handleUnequipItem(slot)
+        );
     }
 
     setupLobby() {
@@ -120,7 +123,7 @@ export default class UISystem {
     }
 
     createInteractionUI() {
-        const uiLayer = document.getElementById('ui-layer') || document.body;
+        const uiLayer = document.body;
 
         if (!document.getElementById('game-tooltip')) {
             const tooltip = document.createElement('div');

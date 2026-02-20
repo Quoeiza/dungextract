@@ -6,7 +6,7 @@
         "sprite": "slime.png",
         "ai": "aggressive",
         "attackSpeed": 4,
-        "moveSpeed": 6
+        "moveSpeed": 1500
     },
     "skeleton": {
         "name": "Skeleton Warrior",
@@ -15,7 +15,7 @@
         "sprite": "skelly.png",
         "ai": "patrol",
         "attackSpeed": 4,
-        "moveSpeed": 2
+        "moveSpeed": 500
     },
     "skeleton_reaver": {
         "name": "Skeleton Reaver",
@@ -24,6 +24,6 @@
         "sprite": "skeleton_reaver.png",
         "ai": "aggressive",
         "attackSpeed": 2,
-        "moveSpeed": 1.5
+        "moveSpeed": 375
     }
 }
