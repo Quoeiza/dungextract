@@ -12,8 +12,11 @@ export default class RenderSystem {
         this.canvas.height = window.innerHeight;
         this.ctx.imageSmoothingEnabled = false;
         this.tileSize = tileSize || 48; // Match tile manager config
-        this.scale = (window.innerWidth < 800) ? 1 : 2;
+        this.targetHeight = 720; // Lock vertical resolution to 720p (15 tiles)
+        this.maxAspectRatio = 16 / 9;
+        this.scale = 1;
         this.lightRadius = 300;
+        this.bufferMargin = 50; // Margin for shake/overscan
 
         // Lighting Layer
         this.lightCanvas = document.createElement('canvas');
@@ -25,6 +28,7 @@ export default class RenderSystem {
         this.shadowCtx = this.shadowCanvas.getContext('2d');
         // Dimensions set in resize()
 
+        window.addEventListener('resize', () => this.resize());
         this.resize(); // Initialize sizes
 
         // TileMap System for sprite-based rendering
@@ -91,14 +95,17 @@ export default class RenderSystem {
     resize() {
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
+
+        // Calculate scale to lock vertical height
+        this.scale = this.canvas.height / this.targetHeight;
         
         // Size lighting buffers to Game Resolution
         const gameW = this.canvas.width / this.scale;
         const gameH = this.canvas.height / this.scale;
-        this.lightCanvas.width = gameW;
-        this.lightCanvas.height = gameH;
-        this.shadowCanvas.width = gameW;
-        this.shadowCanvas.height = gameH;
+        this.lightCanvas.width = gameW + (this.bufferMargin * 2);
+        this.lightCanvas.height = gameH + (this.bufferMargin * 2);
+        this.shadowCanvas.width = gameW + (this.bufferMargin * 2);
+        this.shadowCanvas.height = gameH + (this.bufferMargin * 2);
         this.ctx.imageSmoothingEnabled = false;
         this.lightCtx.imageSmoothingEnabled = false;
         this.shadowCtx.imageSmoothingEnabled = false;
@@ -1016,6 +1023,7 @@ export default class RenderSystem {
         
         // Prepare Shadow Canvas
         sCtx.save();
+        sCtx.translate(this.bufferMargin, this.bufferMargin);
         sCtx.clearRect(0, 0, w, h);
         
         // --- IMPROVED SHADOW LOGIC ---
@@ -1298,6 +1306,9 @@ export default class RenderSystem {
             const sy = (py * ts) - this.camera.y + (ts * 0.5);
             const screenRadius = this.lightRadius;
 
+            ctx.save();
+            ctx.translate(this.bufferMargin, this.bufferMargin);
+
             // 1. Draw Light Gradient (White)
             ctx.globalCompositeOperation = 'source-over';
             const grad = ctx.createRadialGradient(sx, sy, ts * 1.5, sx, sy, screenRadius);
@@ -1309,6 +1320,7 @@ export default class RenderSystem {
             ctx.beginPath();
             ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
             ctx.fill();
+            ctx.restore();
 
             // 2. Subtract Shadows (from shadowCanvas)
             // shadowCanvas contains White Shadows. destination-out removes Light where Shadows are.
@@ -1329,7 +1341,7 @@ export default class RenderSystem {
         ctx.restore();
 
         // Apply Ambient Layer to Main Canvas
-        this.ctx.drawImage(this.lightCanvas, 0, 0);
+        this.ctx.drawImage(this.lightCanvas, -this.bufferMargin, -this.bufferMargin);
     }
 
     drawTorchOverlay(playerVisual) {
@@ -1570,5 +1582,40 @@ export default class RenderSystem {
         this.drawInteractionBar(interaction, myPos);
 
         this.ctx.restore(); // Restore scale
+
+        // 7. Draw Vignette / Letterbox (Screen Space)
+        // Locks the viewable area to a maximum aspect ratio (16:9)
+        const aspect = this.canvas.width / this.canvas.height;
+        if (aspect > this.maxAspectRatio) {
+            const safeWidth = this.canvas.height * this.maxAspectRatio;
+            const margin = (this.canvas.width - safeWidth) / 2;
+            const fadeSize = 100; // Width of the gradient fade
+
+            this.ctx.save();
+            
+            // Left Fade
+            if (margin > 0) {
+                const gradL = this.ctx.createLinearGradient(margin - fadeSize, 0, margin, 0);
+                gradL.addColorStop(0, '#000');
+                gradL.addColorStop(1, 'rgba(0,0,0,0)');
+                
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, margin - fadeSize, this.canvas.height);
+                this.ctx.fillStyle = gradL;
+                this.ctx.fillRect(margin - fadeSize, 0, fadeSize, this.canvas.height);
+            }
+
+            // Right Fade
+            const rightEdge = this.canvas.width - margin;
+            const gradR = this.ctx.createLinearGradient(rightEdge, 0, rightEdge + fadeSize, 0);
+            gradR.addColorStop(0, 'rgba(0,0,0,0)');
+            gradR.addColorStop(1, '#000');
+            this.ctx.fillStyle = gradR;
+            this.ctx.fillRect(rightEdge, 0, fadeSize, this.canvas.height);
+            this.ctx.fillStyle = '#000';
+            this.ctx.fillRect(rightEdge + fadeSize, 0, margin - fadeSize, this.canvas.height);
+
+            this.ctx.restore();
+        }
     }
 }

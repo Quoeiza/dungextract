@@ -21,6 +21,7 @@ export default class UISystem {
                 this.game.playerData.name = name || 'Host';
                 this.game.playerData.class = cls;
                 this.game.database.savePlayer({ name: this.game.playerData.name });
+                this.enableFullscreen();
                 this.game.startGame(true);
             },
             (code, name, cls) => {
@@ -28,6 +29,7 @@ export default class UISystem {
                 this.game.playerData.name = name || 'Client';
                 this.game.playerData.class = cls;
                 this.game.database.savePlayer({ name: this.game.playerData.name });
+                this.enableFullscreen();
                 this.game.startGame(false, code);
             }
         );
@@ -391,5 +393,11 @@ export default class UISystem {
         });
 
         this.game.ticker.stop();
+    }
+
+    enableFullscreen() {
+        if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(e => console.log("Fullscreen request failed:", e));
+        }
     }
 }
