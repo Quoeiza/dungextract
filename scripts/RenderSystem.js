@@ -66,6 +66,7 @@ export default class RenderSystem {
 
         // Shadow Segment Pooling to reduce GC
         this.segmentPool = [];
+        this.segmentPoolIndex = 0;
 
         // Render List Pooling
         this.renderList = [];
@@ -1000,6 +1001,8 @@ export default class RenderSystem {
     drawShadowLayer(grid, playerVisual, entities) {
         if (!playerVisual) return;
 
+        this.segmentPoolIndex = 0; // Reset pool pointer
+
         const sCtx = this.shadowCtx;
         const w = this.shadowCanvas.width;
         const h = this.shadowCanvas.height;
@@ -1011,34 +1014,13 @@ export default class RenderSystem {
         const px = playerVisual.x;
         const py = playerVisual.y;
         
-        // Calculate Screen Coordinates
-        // Offset light to player's center (0.5) to align with sprite.
-        // Lower values (e.g. 0.8) cause light to peek over walls too early (flooding).
         const lOffX = 0.5;
         const lOffY = 0.5;
 
-        // Use float coordinates for smooth lighting, matching shadow volume calculations
-        const sx = (px * ts) - this.camera.x + (ts * lOffX);
-        const sy = (py * ts) - this.camera.y + (ts * lOffY);
-        
         // Prepare Shadow Canvas
         sCtx.save();
         sCtx.translate(this.bufferMargin, this.bufferMargin);
-        sCtx.clearRect(0, 0, w, h);
-        
-        // --- IMPROVED SHADOW LOGIC ---
-        // We separate walls into two lists:
-        // 1. Casters: Visible walls that generate shadow volumes.
-        // 2. Maskers: ALL walls in the vicinity. These must be erased from the shadow 
-        //    layer so shadows don't "draw over" the top of walls.
-        
-        // Reuse arrays to prevent GC
-        this.segmentPoolIndex = 0; // Reset pool pointer
-        this.shadowCasters.length = 0;
-        this.shadowMaskers.length = 0;
-
-        const iPx = Math.floor(px);
-        const iPy = Math.floor(py);
+        sCtx.clearRect(0, 0, w - (this.bufferMargin * 2), h - (this.bufferMargin * 2));
         
         // Optimization: Only calculate shadows within the light radius + padding
         const rBuffer = Math.ceil(radius) + 2;
@@ -1059,7 +1041,6 @@ export default class RenderSystem {
         const endX = Math.min(grid[0].length - 1, Math.floor(endCol));
 
         // --- GREEDY MESHING ALGORITHM ---
-        // Merges adjacent tiles into larger rectangles to reduce draw calls and eliminate light leaks.
         const mesh = (targetArray, isTypeFunc) => {
             this.meshVisited.clear();
             for (let y = startY; y <= endY; y++) {
@@ -1068,13 +1049,10 @@ export default class RenderSystem {
                     if (this.meshVisited.has(key)) continue;
 
                     if (isTypeFunc(x, y)) {
-                        // 1. Find Width
                         let width = 1;
                         while (x + width <= endX && isTypeFunc(x + width, y) && !this.meshVisited.has((y << 16) | (x + width))) {
                             width++;
                         }
-
-                        // 2. Find Height
                         let height = 1;
                         let canExtend = true;
                         while (y + height <= endY && canExtend) {
@@ -1089,14 +1067,10 @@ export default class RenderSystem {
                             }
                             if (canExtend) height++;
                         }
-
-                        // 3. Add Segment
                         const seg = this.getShadowSegment(x, y);
                         seg.w = width;
                         seg.h = height;
                         targetArray.push(seg);
-
-                        // 4. Mark Visited
                         for (let iy = 0; iy < height; iy++) {
                             for (let ix = 0; ix < width; ix++) {
                                 this.meshVisited.add(((y + iy) << 16) | (x + ix));
@@ -1107,90 +1081,54 @@ export default class RenderSystem {
             }
         };
 
-        // Predicates for Meshing
-        const isCaster = (x, y) => this.gridSystem ? !this.gridSystem.isWalkable(x, y) : (this.tileMapSystem.getTileVal(grid, x, y) === 1);
-        const isMasker = (x, y) => (this.tileMapSystem.getTileVal(grid, x, y) === 1) || this.tileMapSystem.shouldDrawVoid(grid, x, y);
-
+        // Casters are "deep walls" - walls that are not front-facing.
+        const isCaster = (x, y) => this.tileMapSystem.getTileVal(grid, x, y) === 1 && !this.tileMapSystem.isFrontFace(grid, x, y);
+        
+        this.shadowCasters.length = 0;
         mesh(this.shadowCasters, isCaster);
-        mesh(this.shadowMaskers, isMasker);
 
         sCtx.save();
         
-        // A. Draw Shadow Volumes
-        // Optimization: Draw opaque first to merge overlaps (prevents banding).
-        // Apply blur HERE so that the shadow volume is soft, but we can mask it sharply later.
+        // Draw Shadow Volumes from casters
         sCtx.globalCompositeOperation = 'source-over';
-        sCtx.fillStyle = '#FFFFFF'; // White for Masking
+        sCtx.fillStyle = '#FFFFFF';
         sCtx.filter = 'blur(4px)'; 
 
         for (const wall of this.shadowCasters) {
-            // Draw the wall base to ensure shadow continuity under the wall before masking.
-            // This prevents the "lighter edge" artifact where the blurred shadow volume meets the wall.
-            const wx = (wall.x * ts) - this.camera.x;
-            const wy = (wall.y * ts) - this.camera.y;
-            sCtx.fillRect(wx, wy, wall.w * ts, wall.h * ts);
-
             this.drawShadowVolume(sCtx, wall.x, wall.y, wall.w, wall.h, px, py, radius, lOffX, lOffY);
         }
-        sCtx.filter = 'none'; // Reset filter for sharp masking
+        sCtx.filter = 'none';
 
-        // B. Mask out ALL Walls (Prevents "Green Circle" issue)
+        // Mask out Entities so they are not in shadow
         sCtx.globalCompositeOperation = 'destination-out';
-        sCtx.fillStyle = '#FFFFFF'; // Alpha 1.0 to fully erase
-
-        for (const wall of this.shadowMaskers) {
-            const tx = Math.floor((wall.x * ts) - this.camera.x);
-            const ty = Math.floor((wall.y * ts) - this.camera.y);
-            sCtx.fillRect(tx, ty, wall.w * ts, wall.h * ts);
-        }
-
-        // C. Mask out Entities (Prevent shadows on sprites)
         if (entities) {
             this.visualEntities.forEach((visual, id) => {
                 if (entities.has(id)) {
                     const pos = entities.get(id);
 
-                    // Calculate Mask Opacity based on Visibility & Stealth
                     let alpha = visual.opacity;
                     if (pos.invisible) {
-                        // If invisible and NOT the local player (compared by reference to playerVisual)
                         if (visual !== playerVisual) {
                             alpha = 0;
                         } else {
                             alpha *= 0.5;
                         }
                     }
-
-                    // Skip if effectively invisible to prevent "ghost" outlines in darkness
                     if (alpha < 0.05) return;
 
-                    // Calculate Offsets (Match drawEntities for alignment)
                     const now = Date.now();
-                    let offsetX = 0;
-                    let offsetY = 0;
+                    let offsetX = 0, offsetY = 0, bumpX = 0, bumpY = 0, recoilOffX = 0, recoilOffY = 0;
+
                     if (now - visual.attackStart < 150) {
                         const progress = (now - visual.attackStart) / 150;
                         const shove = Math.sin(progress * Math.PI) * (ts * 0.25);
-                        if (pos.facing) {
-                            offsetX = pos.facing.x * shove;
-                            offsetY = pos.facing.y * shove;
-                        }
+                        if (pos.facing) { offsetX = pos.facing.x * shove; offsetY = pos.facing.y * shove; }
                     }
-
-                    let bumpX = 0;
-                    let bumpY = 0;
                     if (now - visual.bumpStart < 150) {
                         const progress = (now - visual.bumpStart) / 150;
                         const bumpDist = Math.sin(progress * Math.PI) * (ts * 0.15);
-                        if (visual.bumpDir) {
-                            bumpX = visual.bumpDir.x * bumpDist;
-                            bumpY = visual.bumpDir.y * bumpDist;
-                        }
+                        if (visual.bumpDir) { bumpX = visual.bumpDir.x * bumpDist; bumpY = visual.bumpDir.y * bumpDist; }
                     }
-
-                    // Recoil Offset
-                    let recoilOffX = 0;
-                    let recoilOffY = 0;
                     if (now - visual.recoilStart < 200) {
                         const t = 1 - ((now - visual.recoilStart) / 200);
                         recoilOffX = visual.recoilX * t * ts;
@@ -1200,7 +1138,6 @@ export default class RenderSystem {
                     const tx = Math.floor((visual.x * ts) - Math.floor(this.camera.x) + offsetX + bumpX + recoilOffX);
                     const ty = Math.floor((visual.y * ts) - Math.floor(this.camera.y) + offsetY + bumpY + recoilOffY);
                     
-                    // Determine Sprite
                     let type = pos.type;
                     if (!type && this.combatSystem) {
                         const stats = this.combatSystem.getStats(id);
@@ -1217,15 +1154,11 @@ export default class RenderSystem {
                     const img = this.assetLoader ? this.assetLoader.getImage(spriteKey) : null;
 
                     sCtx.save();
-                    sCtx.globalAlpha = alpha; // Apply opacity to the mask
+                    sCtx.globalAlpha = alpha;
 
                     if (img) {
                         const hopOffset = -Math.sin(Math.PI * Math.max(Math.abs(visual.x % 1), Math.abs(visual.y % 1))) * (ts * 0.125);
-                        
-                        // Idle Animation (Breathing & Swaying)
-                        let scaleY = 1;
-                        let scaleX = 1;
-                        let rotation = 0;
+                        let scaleY = 1, scaleX = 1, rotation = 0;
                         if (!visual.isDying) {
                             const breath = Math.sin(now * 0.003 + visual.idlePhase);
                             scaleY = 1 + (breath * 0.012);
@@ -1234,8 +1167,7 @@ export default class RenderSystem {
 
                         const centerX = tx + (ts * 0.5);
                         const centerY = ty + (ts * 0.5) + hopOffset;
-
-                        sCtx.translate(centerX, centerY + (ts / 2)); // Pivot at feet
+                        sCtx.translate(centerX, centerY + (ts / 2));
 
                         const facingX = visual.lastFacingX !== undefined ? visual.lastFacingX : (pos.facing ? pos.facing.x : -1);
                         const spriteW = img.width;
@@ -1244,15 +1176,13 @@ export default class RenderSystem {
 
                         if (facingX > 0) {
                             sCtx.scale(-1, 1);
-                            drawX -= 1; // Fix 1px offset when flipped
+                            drawX -= 1;
                         }
 
                         sCtx.rotate(rotation);
                         sCtx.scale(scaleX, scaleY);
-
-                        const drawY = -spriteH; // Draw upwards from feet
+                        const drawY = -spriteH;
                         
-                        // Dissolve Logic (Top-Down) - Must match drawEntities
                         if (visual.isDying) {
                             const duration = 750;
                             const progress = (now - visual.deathStart) / duration;
@@ -1260,7 +1190,6 @@ export default class RenderSystem {
                                 sCtx.globalAlpha = alpha * 0.7;
                                 const chevronDepth = spriteH * 0.4;
                                 const level = (progress * (spriteH + chevronDepth)) - chevronDepth;
-
                                 sCtx.beginPath();
                                 sCtx.moveTo(drawX, Math.floor(drawY + spriteH));
                                 sCtx.lineTo(drawX + spriteW, Math.floor(drawY + spriteH));
@@ -1269,11 +1198,9 @@ export default class RenderSystem {
                                 sCtx.lineTo(drawX, Math.floor(drawY + Math.max(0, level + chevronDepth)));
                                 sCtx.closePath();
                                 sCtx.clip();
-
                                 sCtx.drawImage(img, drawX, Math.floor(drawY), spriteW, spriteH);
                             }
                         } else {
-                            // Normal Draw
                             sCtx.drawImage(img, drawX, Math.floor(drawY), spriteW, spriteH);
                         }
                     } else {
