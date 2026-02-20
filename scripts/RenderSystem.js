@@ -1008,6 +1008,9 @@ export default class RenderSystem {
         const h = this.shadowCanvas.height;
         const ts = this.tileSize;
 
+        const camX = Math.floor(this.camera.x);
+        const camY = Math.floor(this.camera.y);
+
         // Torch Configuration
         const screenRadius = this.lightRadius;
         const radius = screenRadius / ts; // Tiles
@@ -1081,8 +1084,8 @@ export default class RenderSystem {
             }
         };
 
-        // Casters are "deep walls" - walls that are not front-facing.
-        const isCaster = (x, y) => this.tileMapSystem.getTileVal(grid, x, y) === 1 && !this.tileMapSystem.isFrontFace(grid, x, y);
+        // Casters are now ALL walls, including front faces.
+        const isCaster = (x, y) => this.tileMapSystem.getTileVal(grid, x, y) === 1;
         
         this.shadowCasters.length = 0;
         mesh(this.shadowCasters, isCaster);
@@ -1098,6 +1101,39 @@ export default class RenderSystem {
             this.drawShadowVolume(sCtx, wall.x, wall.y, wall.w, wall.h, px, py, radius, lOffX, lOffY);
         }
         sCtx.filter = 'none';
+
+        // Mask out Wall Faces so they don't cast shadows on themselves or neighbors
+        sCtx.globalCompositeOperation = 'destination-out';
+        sCtx.fillStyle = '#FFFFFF';
+
+        for (let y = startY; y <= endY; y++) {
+            for (let x = startX; x <= endX; x++) {
+                if (this.tileMapSystem.isFrontFace(grid, x, y)) {
+                    const tx = (x * ts) - camX;
+                    const ty = (y * ts) - camY;
+                    sCtx.fillRect(tx, ty, ts, ts);
+                }
+            }
+        }
+
+        // Project floor shadows onto walls vertically
+        sCtx.globalCompositeOperation = 'source-over';
+        
+        // Iterate Bottom-Up to handle stacked walls
+        for (let y = endY; y >= startY; y--) {
+            for (let x = startX; x <= endX; x++) {
+                if (this.tileMapSystem.isFrontFace(grid, x, y)) {
+                    const tx = (x * ts) - camX;
+                    const ty = (y * ts) - camY;
+
+                    sCtx.drawImage(
+                        this.shadowCanvas,
+                        tx + this.bufferMargin, ty + ts + this.bufferMargin, ts, 1,
+                        tx, ty, ts, ts
+                    );
+                }
+            }
+        }
 
         // Mask out Entities so they are not in shadow
         sCtx.globalCompositeOperation = 'destination-out';
@@ -1222,6 +1258,9 @@ export default class RenderSystem {
         const w = this.lightCanvas.width;
         const h = this.lightCanvas.height;
         const ts = this.tileSize;
+        
+        const camX = Math.floor(this.camera.x);
+        const camY = Math.floor(this.camera.y);
 
         ctx.save();
         ctx.clearRect(0, 0, w, h);
@@ -1229,8 +1268,8 @@ export default class RenderSystem {
         if (playerVisual) {
             const px = playerVisual.x;
             const py = playerVisual.y;
-            const sx = (px * ts) - this.camera.x + (ts * 0.5);
-            const sy = (py * ts) - this.camera.y + (ts * 0.5);
+            const sx = (px * ts) - camX + (ts * 0.5);
+            const sy = (py * ts) - camY + (ts * 0.5);
             const screenRadius = this.lightRadius;
 
             ctx.save();
@@ -1276,8 +1315,8 @@ export default class RenderSystem {
         const ts = this.tileSize;
         const px = playerVisual.x;
         const py = playerVisual.y;
-        const sx = (px * ts) - this.camera.x + (ts * 0.5);
-        const sy = (py * ts) - this.camera.y + (ts * 0.5);
+        const sx = (px * ts) - Math.floor(this.camera.x) + (ts * 0.5);
+        const sy = (py * ts) - Math.floor(this.camera.y) + (ts * 0.5);
         const screenRadius = this.lightRadius;
 
         this.ctx.save();
@@ -1294,15 +1333,18 @@ export default class RenderSystem {
 
     drawShadowVolume(ctx, gx, gy, gw, gh, lx, ly, radius, lOffX = 0.5, lOffY = 0.5) {
         const ts = this.tileSize;
-        const tx = (gx * ts) - this.camera.x;
-        const ty = (gy * ts) - this.camera.y;
+        const camX = Math.floor(this.camera.x);
+        const camY = Math.floor(this.camera.y);
+
+        const tx = (gx * ts) - camX;
+        const ty = (gy * ts) - camY;
         
         // FIX: Use full tile size for shadows as requested.
         const tw = gw * ts;
         const th = gh * ts;
 
-        let lsx = (lx * ts) - this.camera.x + (ts * lOffX);
-        let lsy = (ly * ts) - this.camera.y + (ts * lOffY);
+        let lsx = (lx * ts) - camX + (ts * lOffX);
+        let lsy = (ly * ts) - camY + (ts * lOffY);
 
         // FIX: Handle Light Source inside Caster (GridSystem overlap).
         // If light is inside, snap it to the nearest edge to preserve occlusion
