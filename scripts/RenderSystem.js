@@ -15,7 +15,8 @@ export default class RenderSystem {
         this.targetHeight = 720; // Lock vertical resolution to 720p (15 tiles)
         this.maxAspectRatio = 16 / 9;
         this.scale = 1;
-        this.lightRadius = 300;
+        this.lightRadius = 250;
+        this.lightFalloff = 0.5; // Controls the gradient curve (0.0 - 1.0)
         this.bufferMargin = 50; // Margin for shake/overscan
 
         // Lighting Layer
@@ -614,7 +615,7 @@ export default class RenderSystem {
             }
 
             // Shadow
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.beginPath();
             ctx.ellipse(screenX + (this.tileSize * 0.5), screenY + (this.tileSize * 0.875), this.tileSize * 0.3125, this.tileSize * 0.125, 0, 0, Math.PI * 2);
             ctx.fill();
@@ -913,7 +914,7 @@ export default class RenderSystem {
             this.ctx.fillRect(-(this.tileSize * 0.25), -(this.tileSize * 0.03), this.tileSize * 0.5, this.tileSize * 0.06); // Shaft
             this.ctx.fillStyle = '#888';
             this.ctx.fillRect((this.tileSize * 0.1875), -(this.tileSize * 0.06), this.tileSize * 0.06, this.tileSize * 0.125); // Tip
-            this.ctx.fillStyle = '#d44';
+            this.ctx.fillStyle = 'rgb(108, 56, 37)';
             this.ctx.fillRect(-(this.tileSize * 0.25), -(this.tileSize * 0.06), this.tileSize * 0.125, this.tileSize * 0.125); // Fletching
             
             this.ctx.restore();
@@ -1289,19 +1290,24 @@ export default class RenderSystem {
             const sy = (py * ts) - camY + (ts * 0.5);
             const screenRadius = this.lightRadius;
 
+            const now = Date.now();
+            const flicker = (Math.sin(now * 0.004) + Math.sin(now * 0.013) + Math.sin(now * 0.03)) * 0.01;
+            const currentRadius = screenRadius * (1 + flicker);
+
             ctx.save();
             ctx.translate(this.bufferMargin, this.bufferMargin);
 
             // 1. Draw Light Gradient (White)
             ctx.globalCompositeOperation = 'source-over';
-            const grad = ctx.createRadialGradient(sx, sy, ts * 1.5, sx, sy, screenRadius);
+            const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, currentRadius);
             grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-            grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.3)');
+            grad.addColorStop(this.lightFalloff * 0.25, 'rgba(255, 255, 255, 0.95)');
+            grad.addColorStop(this.lightFalloff, 'rgba(255, 255, 255, 0.5)');
             grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
             
             ctx.fillStyle = grad;
             ctx.beginPath();
-            ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
+            ctx.arc(sx, sy, currentRadius, 0, Math.PI * 2);
             ctx.fill();
             ctx.restore();
 
@@ -1336,15 +1342,43 @@ export default class RenderSystem {
         const sy = (py * ts) - Math.floor(this.camera.y) + (ts * 0.5);
         const screenRadius = this.lightRadius;
 
+        const now = Date.now();
+        const flicker = (Math.sin(now * 0.004) + Math.sin(now * 0.013) + Math.sin(now * 0.03)) * 0.01;
+        const currentRadius = screenRadius * (1 + flicker) * 1.2;
+
+        // Use lightCanvas as a scratch buffer to mask out shadows
+        const ctx = this.lightCtx;
+        const w = this.lightCanvas.width;
+        const h = this.lightCanvas.height;
+        const bx = this.bufferMargin;
+        const by = this.bufferMargin;
+
+        ctx.save();
+        ctx.clearRect(0, 0, w, h);
+        ctx.translate(bx, by);
+
+        ctx.globalCompositeOperation = 'source-over';
+        const colorGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, currentRadius);
+        colorGrad.addColorStop(0.2, 'rgba(255, 189, 103, 0.5)');
+        colorGrad.addColorStop(0.4, 'rgba(255, 168, 53, 0.75)');
+        colorGrad.addColorStop(0.8, 'rgba(255, 81, 0, 0.15)');
+        colorGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = colorGrad;
+        ctx.beginPath();
+        ctx.arc(sx, sy, currentRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Mask out Shadows
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.drawImage(this.shadowCanvas, 0, 0);
+        ctx.restore();
+
+        // Draw to Main Canvas
         this.ctx.save();
         this.ctx.globalCompositeOperation = 'overlay';
-        const colorGrad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius * 0.8);
-        colorGrad.addColorStop(0, 'rgba(255, 160, 60, 0.5)'); // Warm Orange
-        colorGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        this.ctx.fillStyle = colorGrad;
-        this.ctx.beginPath();
-        this.ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
-        this.ctx.fill();
+        this.ctx.drawImage(this.lightCanvas, -bx, -by);
         this.ctx.restore();
     }
 
@@ -1555,11 +1589,11 @@ export default class RenderSystem {
         // 4. Draw Roofs (Occludes entities)
         this.drawRoof(grid, grid[0].length, grid.length);
 
-        // 5. Draw Ambient Darkness (Over Everything)
-        this.drawAmbientLayer(this.visualEntities.get(localPlayerId));
-
-        // 6. Draw Torch Overlay (New Step)
+        // 5. Draw Torch Overlay (Color Tinting - BEFORE Shadow)
         this.drawTorchOverlay(this.visualEntities.get(localPlayerId));
+
+        // 6. Draw Ambient Darkness (Shadow Mask - OVER Everything)
+        this.drawAmbientLayer(this.visualEntities.get(localPlayerId));
 
         this.ctx.restore(); // Restore shake
 
