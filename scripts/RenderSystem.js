@@ -497,7 +497,8 @@ export default class RenderSystem {
         });
 
         // 4. Render
-        for (const { id, pos, visual } of renderList) {
+        for (const item of renderList) {
+            const { id, pos, visual } = item;
             // Hop Animation (Based on fractional grid position)
             // We use the fractional part of the visual position to determine the hop arc
             const hopOffset = -Math.sin(Math.PI * Math.max(Math.abs(visual.x % 1), Math.abs(visual.y % 1))) * (this.tileSize * 0.125);
@@ -556,63 +557,9 @@ export default class RenderSystem {
 
             const screenX = Math.floor((visual.x * this.tileSize) - Math.floor(this.camera.x) + offsetX + bumpX + recoilOffX);
             const screenY = Math.floor((visual.y * this.tileSize) - Math.floor(this.camera.y) + offsetY + hopOffset + bumpY + recoilOffY);
-
-            // Resolve HP from CombatSystem if missing on entity (e.g. local GridSystem entity)
-            let hp = pos.hp;
-            let maxHp = pos.maxHp;
-            if (hp === undefined && this.combatSystem) {
-                const stats = this.combatSystem.getStats(id);
-                if (stats) {
-                    hp = stats.hp;
-                    maxHp = stats.maxHp;
-                }
-            }
-
-            // Health Bar (Curved under sprite)
-            if (hp !== undefined && maxHp !== undefined && hp > 0) {
-                const hpRatio = maxHp > 0 ? Math.max(0, hp / maxHp) : 0;
-                const cx = screenX + (this.tileSize * 0.5);
-                const cy = screenY + (this.tileSize * 1); // Position slightly below feet
-                
-                const w = this.tileSize * 0.35;
-                const h = this.tileSize * 0.2;  // Curve depth
-                const th = this.tileSize * 0.05; // Thickness
-                const tipR = this.tileSize * 0.02; // Nub radius
-
-                const definePath = () => {
-                    ctx.beginPath();
-                    // Left Nub (Bottom to Top)
-                    ctx.arc(cx - w, cy, tipR, Math.PI * 0.5, Math.PI * 1.5);
-                    // Top Curve
-                    ctx.quadraticCurveTo(cx, cy + h - th, cx + w, cy - tipR);
-                    // Right Nub (Top to Bottom)
-                    ctx.arc(cx + w, cy, tipR, -Math.PI * 0.5, Math.PI * 0.5);
-                    // Bottom Curve
-                    ctx.quadraticCurveTo(cx, cy + h, cx - w, cy + tipR);
-                    ctx.closePath();
-                };
-
-                // Background
-                definePath();
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-                ctx.fill();
-
-                // Foreground
-                if (hpRatio > 0) {
-                    ctx.save();
-                    definePath();
-                    ctx.clip();
-                    ctx.fillStyle = hpRatio > 0.5 ? '#4d4' : '#d44';
-                    ctx.fillRect(cx - w, cy, (2 * w) * hpRatio, h);
-                    ctx.restore();
-                }
-
-                // Border
-                definePath();
-                ctx.lineWidth = 0.3;
-                ctx.strokeStyle = '#000';
-                ctx.stroke();
-            }
+            
+            item.screenX = screenX;
+            item.screenY = screenY;
 
             // Shadow
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
@@ -720,6 +667,68 @@ export default class RenderSystem {
             }
             
             ctx.globalAlpha = 1.0; // Reset
+        }
+    }
+
+    drawHPBars() {
+        const ctx = this.ctx;
+        for (const { id, pos, screenX, screenY } of this.renderList) {
+            // Resolve HP from CombatSystem if missing on entity (e.g. local GridSystem entity)
+            let hp = pos.hp;
+            let maxHp = pos.maxHp;
+            if (hp === undefined && this.combatSystem) {
+                const stats = this.combatSystem.getStats(id);
+                if (stats) {
+                    hp = stats.hp;
+                    maxHp = stats.maxHp;
+                }
+            }
+
+            // Health Bar (Curved under sprite)
+            if (hp !== undefined && maxHp !== undefined && hp > 0) {
+                const hpRatio = maxHp > 0 ? Math.max(0, hp / maxHp) : 0;
+                const cx = screenX + (this.tileSize * 0.5);
+                const cy = screenY + (this.tileSize * 1); // Position slightly below feet
+                
+                const w = this.tileSize * 0.35;
+                const h = this.tileSize * 0.2;  // Curve depth
+                const th = this.tileSize * 0.05; // Thickness
+                const tipR = this.tileSize * 0.02; // Nub radius
+
+                const definePath = () => {
+                    ctx.beginPath();
+                    // Left Nub (Bottom to Top)
+                    ctx.arc(cx - w, cy, tipR, Math.PI * 0.5, Math.PI * 1.5);
+                    // Top Curve
+                    ctx.quadraticCurveTo(cx, cy + h - th, cx + w, cy - tipR);
+                    // Right Nub (Top to Bottom)
+                    ctx.arc(cx + w, cy, tipR, -Math.PI * 0.5, Math.PI * 0.5);
+                    // Bottom Curve
+                    ctx.quadraticCurveTo(cx, cy + h, cx - w, cy + tipR);
+                    ctx.closePath();
+                };
+
+                // Background
+                definePath();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fill();
+
+                // Foreground
+                if (hpRatio > 0) {
+                    ctx.save();
+                    definePath();
+                    ctx.clip();
+                    ctx.fillStyle = hpRatio > 0.5 ? '#4d4' : '#d44';
+                    ctx.fillRect(cx - w, cy, (2 * w) * hpRatio, h);
+                    ctx.restore();
+                }
+
+                // Border
+                definePath();
+                ctx.lineWidth = 0.3;
+                ctx.strokeStyle = '#000';
+                ctx.stroke();
+            }
         }
     }
 
@@ -1359,8 +1368,8 @@ export default class RenderSystem {
 
         ctx.globalCompositeOperation = 'source-over';
         const colorGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, currentRadius);
-        colorGrad.addColorStop(0.2, 'rgba(255, 189, 103, 0.5)');
-        colorGrad.addColorStop(0.4, 'rgba(255, 168, 53, 0.75)');
+        colorGrad.addColorStop(0.2, 'rgba(255, 181, 85, 0.5)');
+        colorGrad.addColorStop(0.4, 'rgba(255, 137, 53, 0.75)');
         colorGrad.addColorStop(0.8, 'rgba(255, 81, 0, 0.15)');
         colorGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ctx.fillStyle = colorGrad;
@@ -1588,6 +1597,8 @@ export default class RenderSystem {
         
         // 4. Draw Roofs (Occludes entities)
         this.drawRoof(grid, grid[0].length, grid.length);
+
+        this.drawHPBars();
 
         // 5. Draw Torch Overlay (Color Tinting - BEFORE Shadow)
         this.drawTorchOverlay(this.visualEntities.get(localPlayerId));
