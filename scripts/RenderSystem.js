@@ -45,6 +45,13 @@ export default class RenderSystem {
         this.shake = { intensity: 0, duration: 0, startTime: 0 };
         this.assetLoader = null;
 
+        this.torchState = {
+            hue: 0,
+            targetHue: 0,
+            lastShift: 0,
+            nextShiftDelay: 0
+        };
+
         // Performance Caching
         this.staticCacheBottom = document.createElement('canvas');
         this.staticCtxBottom = this.staticCacheBottom.getContext('2d');
@@ -1354,6 +1361,16 @@ export default class RenderSystem {
         const now = Date.now();
         const flicker = (Math.sin(now * 0.004) + Math.sin(now * 0.013) + Math.sin(now * 0.03)) * 0.01;
         const currentRadius = screenRadius * (1 + flicker) * 1.2;
+        
+        // Random Interval Hue Shift
+        if (now - this.torchState.lastShift > this.torchState.nextShiftDelay) {
+            this.torchState.lastShift = now;
+            this.torchState.nextShiftDelay = 50 + Math.random() * 15; // Rapid flicker
+            this.torchState.targetHue = (Math.random() * 5) - 5; // +/- 15 degrees
+        }
+        // Faster lerp for flicker effect
+        this.torchState.hue += (this.torchState.targetHue - this.torchState.hue) * 0.2;
+        const hueShift = this.torchState.hue;
 
         // Use lightCanvas as a scratch buffer to mask out shadows
         const ctx = this.lightCtx;
@@ -1368,10 +1385,10 @@ export default class RenderSystem {
 
         ctx.globalCompositeOperation = 'source-over';
         const colorGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, currentRadius);
-        colorGrad.addColorStop(0.2, 'rgba(255, 181, 85, 0.5)');
-        colorGrad.addColorStop(0.4, 'rgba(255, 137, 53, 0.75)');
-        colorGrad.addColorStop(0.8, 'rgba(255, 81, 0, 0.15)');
-        colorGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        colorGrad.addColorStop(0.15, `hsla(${25 + hueShift}, 100%, 75%, 0.75)`);
+        colorGrad.addColorStop(0.5, `hsla(${25 + hueShift}, 100%, 60%, 0.6)`);
+        colorGrad.addColorStop(0.75, `hsla(${25 + hueShift}, 100%, 40%, 0.2)`);
+        colorGrad.addColorStop(0.85, 'rgba(0, 0, 0, 0)');
         ctx.fillStyle = colorGrad;
         ctx.beginPath();
         ctx.arc(sx, sy, currentRadius, 0, Math.PI * 2);
