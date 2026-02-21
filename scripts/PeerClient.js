@@ -88,6 +88,10 @@ export default class PeerClient extends EventEmitter {
         conn.on('open', () => {
             this.emit('connected', { peerId: conn.peer, metadata: conn.metadata });
         });
+        conn.on('close', () => {
+            this.emit('disconnected', conn.peer);
+            this.connections = this.connections.filter(c => c !== conn);
+        });
 
         // If connection is already open (race condition), emit immediately
         if (conn.open) {

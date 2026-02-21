@@ -301,12 +301,27 @@ export default class GameLoop {
             this.state.myId = id;
         });
 
-        this.peerClient.on('close', (id) => {
+        this.peerClient.on('disconnected', (peerId) => {
             if (this.state.isHost) {
-                console.log(`Player ${id} disconnected`);
-                this.gridSystem.removeEntity(id);
-                this.combatSystem.stats.delete(id);
+                console.log(`Player ${peerId} disconnected.`);
+                this.gridSystem.removeEntity(peerId);
+                this.combatSystem.stats.delete(peerId);
                 this.checkHumansEscaped();
+            } else {
+                this.uiSystem.showNotification("Host disconnected. Returning to lobby.");
+                setTimeout(() => location.reload(), 2000);
+            }
+        });
+
+        this.peerClient.on('disconnected', (peerId) => {
+            if (this.state.isHost) {
+                console.log(`Player ${peerId} disconnected.`);
+                this.gridSystem.removeEntity(peerId);
+                this.combatSystem.stats.delete(peerId);
+                this.checkHumansEscaped();
+            } else {
+                this.uiSystem.showNotification("Host disconnected. Returning to lobby.");
+                setTimeout(() => location.reload(), 2000);
             }
         });
 
@@ -438,12 +453,6 @@ export default class GameLoop {
                     const loot = this.lootSystem.worldLoot.get(data.payload.lootId);
                     if (loot) this.processLootInteraction(sender, loot);
                 }
-                if (data.type === 'HELLO') {
-                    this.peerClient.sendTo(sender, {
-                        type: 'INIT_WORLD',
-                        payload: { grid: this.gridSystem.grid }
-                    });
-                }
                 if (data.type === 'EQUIP_ITEM') {
                     this.handleEquipItem(data.payload.itemId, data.payload.slot);
                     this.sendInventoryUpdate(sender);
@@ -461,6 +470,10 @@ export default class GameLoop {
                     this.syncManager.addSnapshot(data.payload);
                 } else if (data.type === 'INIT_WORLD') {
                     this.gridSystem.setGrid(data.payload.grid);
+                    if (data.payload.snapshot) {
+                        this.syncManager.addSnapshot(data.payload.snapshot);
+                        this.state.gameTime = data.payload.snapshot.gameTime;
+                    }
                     if (this.state.handshakeInterval) {
                         clearInterval(this.state.handshakeInterval);
                         this.state.handshakeInterval = null;
@@ -545,15 +558,24 @@ export default class GameLoop {
                 this.lootSystem.addItemToEntity(peerId, 'sword_basic', 1);
                 this.lootSystem.addItemToEntity(peerId, 'armor_leather', 1);
                 this.sendInventoryUpdate(peerId);
+
+                // Send initial state right away
+                const snapshot = this.syncManager.serializeState(
+                    this.gridSystem, this.combatSystem, this.lootSystem,
+                    this.state.projectiles, this.state.gameTime
+                );
+                this.peerClient.sendTo(peerId, {
+                    type: 'INIT_WORLD',
+                    payload: {
+                        grid: this.gridSystem.grid,
+                        snapshot: snapshot
+                    }
+                });
             } else {
                 // Update room code display to ensure it shows the room we connected to
                 const parts = peerId.split('-');
                 const displayId = parts.length >= 2 ? parts[1] : peerId;
                 document.getElementById('room-code-display').innerText = `Room: ${displayId}`;
-
-                this.state.handshakeInterval = setInterval(() => {
-                    if (!this.state.connected) this.peerClient.send({ type: 'HELLO' });
-                }, 500);
             }
         });
     }
