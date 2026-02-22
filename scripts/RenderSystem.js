@@ -453,29 +453,32 @@ export default class RenderSystem {
                 }
 
                 // Detect authoritative position change (e.g. from network update)
-                if (pos.x !== visual.targetX || pos.y !== visual.targetY) {
+                let effectiveTargetX = pos.x;
+                let effectiveTargetY = pos.y;
+                const isLocal = (id === localPlayerId);
+
+                // Force discrete targeting for remote entities to smooth out network jitter
+                // SyncManager provides interpolated floats, but we want to animate grid-to-grid.
+                if (!isHost && !isLocal) {
+                    effectiveTargetX = Math.round(pos.x);
+                    effectiveTargetY = Math.round(pos.y);
+                }
+
+                if (effectiveTargetX !== visual.targetX || effectiveTargetY !== visual.targetY) {
                     visual.startX = visual.x;
                     visual.startY = visual.y;
-                    visual.targetX = pos.x;
-                    visual.targetY = pos.y;
+                    visual.targetX = effectiveTargetX;
+                    visual.targetY = effectiveTargetY;
                     visual.moveStartTime = now;
                 }
 
                 // Interpolation Logic
                 if (!visual.isDying) {
-                    const isLocal = (id === localPlayerId);
-                    // Remote entities on client are already interpolated by SyncManager (Continuous).
-                    // Local player and Host entities move grid-by-grid (Discrete).
-                    const isContinuous = !isHost && !isLocal;
-
-                    if (isContinuous) {
-                        visual.moveT = 1; // Snap to the smooth position provided by SyncManager
-                        // Fix for animation: Calculate synthetic moveT based on grid position
-                        visual.animT = (Math.abs(visual.targetX) % 1) + (Math.abs(visual.targetY) % 1);
-                    } else {
-                        visual.moveT = Math.min(1, (now - visual.moveStartTime) / 250);
-                        visual.animT = visual.moveT;
-                    }
+                    // Always use discrete animation logic for grid entities
+                    const moveDuration = 250; 
+                    visual.moveT = Math.min(1, (now - visual.moveStartTime) / moveDuration);
+                    visual.animT = visual.moveT;
+                    
                     visual.x = visual.startX + (visual.targetX - visual.startX) * visual.moveT;
                     visual.y = visual.startY + (visual.targetY - visual.startY) * visual.moveT;
                 } else {
