@@ -20,6 +20,7 @@ export function setupLobby(uiLayer, playerData, onHost, onJoin, onQuickJoin) {
                     <option value="Rogue">Rogue (Stealth)</option>
                     <option value="Barbarian">Barbarian (Rage)</option>
                 </select>
+                <button id="btn-lobby-settings">Settings</button>
                 <button id="btn-quick-join">Quick Join</button>
                 <button id="btn-host">Host Game</button>
                 <div class="join-row">
