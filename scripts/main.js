@@ -1,3 +1,4 @@
+import { playFabManager } from './PlayFabManager.js';
 import GameLoop from './GameLoop.js';
 
 /**

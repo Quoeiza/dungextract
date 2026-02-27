@@ -8,10 +8,14 @@
     <link rel="icon" href="data:,">
     <!-- PeerJS CDN -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <script type="text/javascript" src="https://download.playfab.com/PlayFabClientApi.js"></script>
 </head>
 <body>
     <div id="ui-layer">
-        <div id="room-code-display" class="hidden">Connecting...</div>
+        <div id="login-container"></div>
+        <div id="lobby-container">
+            <div id="room-code-display" class="hidden">Connecting...</div>
+        </div>
         <div id="kill-feed" class="hidden"></div>
         <div id="stats-bar" class="hidden">
             <div class="stat">HP: <span id="hp-val">100</span></div>

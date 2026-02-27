@@ -546,3 +546,101 @@ input, select {
 .highlight {
     color: var(--gold); /* Use theme color */
 }
+
+/* LOGIN FORM STYLES */
+#login-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 200;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding: 30px;
+    background: var(--steel-mid);
+    border: 2px solid var(--steel-dark);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+    width: 100%;
+    max-width: 400px;
+}
+
+.login-form h2 {
+    color: var(--gold);
+    text-align: center;
+    margin: 0 0 10px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group label {
+    font-size: 14px;
+    margin-bottom: 5px;
+    color: var(--parchment-dark);
+}
+
+#login-container input {
+    font-size: 16px;
+}
+
+#login-container button {
+    font-size: 18px;
+    text-transform: uppercase;
+}
+
+.login-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.login-buttons button {
+    flex: 1;
+}
+
+.forgot-password {
+    font-size: 12px;
+    text-align: center;
+    margin-top: 10px;
+}
+
+.forgot-password a {
+    color: var(--rust-light);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.forgot-password a:hover {
+    text-decoration: underline;
+}
+
+#login-error {
+    color: #ff6b6b;
+    text-align: center;
+    min-height: 20px;
+    font-size: 14px;
+}
+
+@media (max-width: 480px) {
+    .login-form {
+        padding: 20px;
+        margin: 0 15px;
+    }
+
+    .login-buttons {
+        flex-direction: column;
+    }
+}

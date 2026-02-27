@@ -64,6 +64,12 @@ export default class InputManager extends EventEmitter {
      */
     initListeners() {
         window.addEventListener('keydown', (e) => {
+            // Ignore input if a text field is focused
+            const target = e.target;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) {
+                return;
+            }
+
             this.keys[e.code] = true;
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
                 e.preventDefault();

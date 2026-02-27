@@ -1,4 +1,4 @@
-import { setupLobby } from './Lobby.js';
+import { Lobby } from './Lobby.js';
 import { InventoryUI } from './InventoryUI.js';
 
 export default class UISystem {
@@ -14,7 +14,7 @@ export default class UISystem {
 
     setupLobby() {
         const uiLayer = document.getElementById('ui-layer');
-        setupLobby(
+        new Lobby(
             uiLayer,
             this.game.playerData,
             (name, cls) => {
