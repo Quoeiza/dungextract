@@ -407,8 +407,10 @@ export default class UISystem {
     }
 
     enableFullscreen() {
-        if (document.documentElement.requestFullscreen) {
-            document.documentElement.requestFullscreen().catch(e => console.log("Fullscreen request failed:", e));
+        const el = document.documentElement;
+        const rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+        if (rfs) {
+            rfs.call(el).catch(e => console.log("Fullscreen request failed:", e));
         }
     }
 }
