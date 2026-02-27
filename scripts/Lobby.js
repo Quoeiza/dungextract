@@ -26,6 +26,7 @@ export function setupLobby(uiLayer, playerData, onHost, onJoin, onQuickJoin) {
                     <input type="text" id="room-code-input" placeholder="****" />
                     <button id="btn-join">Join Game</button>
                 </div>
+                <button id="btn-quit-game">Quit Game</button>
             </div>
         </div>
         <div id="lobby-footer">
@@ -68,5 +69,9 @@ export function setupLobby(uiLayer, playerData, onHost, onJoin, onQuickJoin) {
         const playerClass = document.getElementById('class-select').value;
         if (!code) return alert("Enter a room code");
         onJoin(code, name, playerClass);
+    };
+
+    document.getElementById('btn-quit-game').onclick = () => {
+        window.close();
     };
 }

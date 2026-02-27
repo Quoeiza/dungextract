@@ -40,6 +40,15 @@ export default class UISystem {
                 this.game.startQuickJoin();
             }
         );
+
+        // Attempt immediate fullscreen
+        this.enableFullscreen();
+        // Ensure fullscreen on first interaction (browsers often block immediate fullscreen)
+        const fsHandler = () => {
+            this.enableFullscreen();
+        };
+        document.addEventListener('click', fsHandler, { once: true });
+        document.addEventListener('touchstart', fsHandler, { once: true });
     }
 
     setupUI() {
@@ -125,7 +134,11 @@ export default class UISystem {
         if (settingsModal) {
             document.getElementById('btn-resume').onclick = () => this.toggleSettingsMenu();
             document.getElementById('btn-settings').onclick = () => alert("Settings coming soon!");
-            document.getElementById('btn-quit').onclick = () => location.reload();
+            
+            const btnReturn = document.getElementById('btn-return-lobby');
+            if (btnReturn) btnReturn.onclick = () => location.reload();
+
+            document.getElementById('btn-quit').onclick = () => window.close();
         }
 
         this.createInteractionUI();
@@ -407,6 +420,8 @@ export default class UISystem {
     }
 
     enableFullscreen() {
+        if (window.location.host === '127.0.0.1:5500') return;
+
         const el = document.documentElement;
         const rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
         if (rfs) {
