@@ -144,6 +144,9 @@ export class Game {
 
         this.onPlayerRemoved = null;
         this.onWorldUpdate = null;
+        this.onUnicast = null;
+
+        this.combatSystem.on('death', (data) => this.handleEntityDeath(data));
     }
 
     startGame() {
@@ -161,6 +164,30 @@ export class Game {
         if (dt > 100) dt = 100;
 
         this.worldState.gameTime -= (dt / 1000);
+
+        // Process Player Paths (Mouse Movement)
+        for (const [id, stats] of this.combatSystem.stats) {
+            if (stats.isPlayer && stats.currentPath && stats.currentPath.length > 0) {
+                if (this.ticker.tick >= stats.nextActionTick) {
+                    const nextStep = stats.currentPath[0];
+                    const pos = this.gridSystem.entities.get(id);
+                    if (pos) {
+                        const dir = { x: nextStep.x - pos.x, y: nextStep.y - pos.y };
+                        // Validate adjacency to prevent teleporting
+                        if (Math.abs(dir.x) <= 1 && Math.abs(dir.y) <= 1) {
+                            this.processMove(id, dir);
+                            stats.currentPath.shift(); // Remove step
+                            
+                            // Apply Cooldown
+                            const cooldownMs = this.combatSystem.calculateCooldown(id, this.config.global.globalCooldownMs || 250);
+                            stats.nextActionTick = this.ticker.tick + Math.ceil(cooldownMs / this.ticker.timePerTick);
+                        } else {
+                            stats.currentPath = null; // Invalid step
+                        }
+                    }
+                }
+            }
+        }
             
         if (!this.worldState.escapeOpen && this.worldState.gameTime <= 60) {
             this.worldState.escapeOpen = true;
@@ -182,6 +209,29 @@ export class Game {
         this.aiSystem.update(this.ticker.tick, this.ticker.timePerTick, (attackerId, targetId) => this.performAttack(attackerId, targetId));
     }
 
+    handleEntityDeath(data) {
+        const { entityId } = data;
+        
+        // Notify clients to play animation
+        if (this.onWorldUpdate) {
+            this.onWorldUpdate({ 
+                type: NetworkEvents.ENTITY_DEATH, 
+                payload: { id: entityId } 
+            });
+        }
+
+        // Remove entity after delay (allow animation to play)
+        setTimeout(() => {
+            if (this.combatSystem.stats.has(entityId)) {
+                if (this.combatSystem.stats.get(entityId).isPlayer) {
+                    this.removePlayer(entityId); 
+                } else {
+                    this.gridSystem.removeEntity(entityId);
+                    this.combatSystem.stats.delete(entityId);
+                }
+            }
+        }, 1000);
+    }
 
     stop() {
         this.ticker.stop();
@@ -206,6 +256,7 @@ export class Game {
         const state = {
             ...this.worldState,
             grid: this.gridSystem.grid,
+            gridRevision: this.gridSystem.revision,
             entities: entities,
             loot: Array.from(this.lootSystem.worldLoot.entries())
         };
@@ -228,6 +279,7 @@ export class Game {
         // Starter Items for Client
         this.lootSystem.addItemToEntity(playerId, 'sword_basic', 1);
         this.lootSystem.addItemToEntity(playerId, 'armor_leather', 1);
+        this.sendInventoryUpdate(playerId);
         
         console.log(`Player ${playerId} added.`);
     }
@@ -242,6 +294,17 @@ export class Game {
         console.log(`Player ${playerId} removed.`);
         if (this.onPlayerRemoved) {
             this.onPlayerRemoved(playerId);
+        }
+    }
+
+    sendInventoryUpdate(playerId) {
+        if (this.onUnicast) {
+             const inv = this.lootSystem.getInventory(playerId);
+             const equip = this.lootSystem.getEquipment(playerId);
+             this.onUnicast(playerId, {
+                 type: NetworkEvents.UPDATE_INVENTORY,
+                 payload: { inventory: inv, equipment: equip }
+             });
         }
     }
 
@@ -271,7 +334,27 @@ export class Game {
         stats.lastProcessedInputTick = input.tick;
 
         if (intent.type === 'MOVE') {
+            stats.currentPath = null; // Interrupt auto-pathing
             this.processMove(playerId, intent.direction);
+        } else if (intent.type === 'TARGET_ACTION') {
+            const action = this.gridSystem.determineClickIntent(
+                intent.x, intent.y, playerId, this.combatSystem, this.lootSystem, false, intent.shift
+            );
+            
+            if (action) {
+                if (action.type === 'ATTACK_TARGET') {
+                    const result = this.combatSystem.processTargetAction(playerId, action.x, action.y, this.gridSystem, this.lootSystem);
+                    if (result) {
+                        if (result.type === 'PROJECTILE') {
+                            this.spawnProjectile(result.projectile);
+                        } else if (result.type === 'MELEE') {
+                            this.performAttack(playerId, result.targetId);
+                        }
+                    }
+                } else if (action.type === 'MOVE_PATH') {
+                    stats.currentPath = action.path;
+                }
+            }
         }
         // ... other intent types will be handled here
     }
@@ -301,21 +384,40 @@ export class Game {
         if (!result) return;
 
         if (result.type === 'RANGED') {
-            const proj = { 
-                id: `proj_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                ...result.projectile 
-            };
-            this.worldState.projectiles.push(proj);
-            if (this.onWorldUpdate) this.onWorldUpdate({ type: NetworkEvents.SPAWN_PROJECTILE, payload: proj });
-            
+            this.spawnProjectile(result.projectile);
         } else if (result.type === 'MELEE') {
             this.combatSystem.applyDamage(targetId, result.damage, attackerId, { isCrit: result.isCrit });
+            if (this.onWorldUpdate) {
+                this.onWorldUpdate({ 
+                    type: NetworkEvents.EFFECT, 
+                    payload: { type: 'attack', targetId, sourceId: attackerId } 
+                });
+            }
         }
+    }
+
+    spawnProjectile(data) {
+        const proj = { 
+            id: `proj_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            ...data 
+        };
+        this.worldState.projectiles.push(proj);
+        if (this.onWorldUpdate) this.onWorldUpdate({ type: NetworkEvents.SPAWN_PROJECTILE, payload: proj });
     }
 
     processLootInteraction(entityId, loot) {
         const result = this.lootSystem.resolveInteraction(entityId, loot.id);
-        // ... notify clients of the result
+        if (result) {
+            this.sendInventoryUpdate(entityId);
+            
+            // Notify everyone that loot is opened/gone
+            if (this.onWorldUpdate) {
+                this.onWorldUpdate({ 
+                    type: NetworkEvents.LOOT_OPENED, 
+                    payload: { id: loot.id } 
+                });
+            }
+        }
     }
 
     handleEscape(entityId) {

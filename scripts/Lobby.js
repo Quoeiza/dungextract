@@ -127,6 +127,7 @@ export class Lobby {
             </select>
             <div id="lobby-status" class="lobby-status"></div>
             <button id="btn-enter-dungeon">Enter the Dungeon</button>
+            <button id="btn-debug-local" style="background: #444; border-color: #666;">Debug Local</button>
             <button id="btn-lobby-settings">Settings</button>
             <button id="btn-logout">Logout</button>
             <button id="btn-quit-game">Quit Game</button>
@@ -136,6 +137,12 @@ export class Lobby {
             const name = document.getElementById('player-name').value;
             const playerClass = document.getElementById('class-select').value;
             if (this.onEnterDungeon) this.onEnterDungeon(name, playerClass);
+        };
+
+        document.getElementById('btn-debug-local').onclick = () => {
+            const name = document.getElementById('player-name').value;
+            const playerClass = document.getElementById('class-select').value;
+            if (this.onEnterDungeon) this.onEnterDungeon(name, playerClass, true); // true = isLocal
         };
 
         document.getElementById('btn-lobby-settings').onclick = () => {

@@ -17,11 +17,16 @@ export default class UISystem {
         new Lobby(
             uiLayer,
             this.game.playerData,
-            (name, cls) => {
+            (name, cls, isLocal) => {
                 this.game.playerData.name = name || 'Traveler';
                 this.game.playerData.class = cls;
                 this.game.database.savePlayer({ name: this.game.playerData.name });
-                this.game.startQuickJoin();
+                
+                if (isLocal) {
+                    this.game.connectToGame('127.0.0.1', 56100, 'DEBUG');
+                } else {
+                    this.game.startQuickJoin();
+                }
             },
             this // Pass the UISystem instance to the Lobby
         );
@@ -244,6 +249,15 @@ export default class UISystem {
     updateLobbyStatus(message) {
         const el = document.getElementById('lobby-status');
         if (el) el.innerText = message;
+    }
+
+    updateTimer(seconds) {
+        const el = document.getElementById('game-timer');
+        if (el) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            el.innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
     }
 
     updateTooltip(data) {

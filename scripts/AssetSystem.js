@@ -119,7 +119,6 @@ export default class AssetSystem {
             global: './scripts/global.json',
             items: './scripts/items.json',
             enemies: './scripts/enemies.json',
-            net: './scripts/networking.json',
         };
 
         const promises = Object.entries(configFiles).map(([name, path]) => {

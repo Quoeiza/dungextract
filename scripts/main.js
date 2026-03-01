@@ -112,6 +112,9 @@ class App {
         console.log(`Connecting to ${host}:${port}...`);
         this.uiSystem.updateLobbyStatus(`Connecting to server...`);
         document.getElementById('lobby-screen').classList.add('hidden');
+
+        // Initialize Game UI
+        this.uiSystem.setupUI();
         
         this.client = new Client(`ws://${host}:${port}`, ticket);
         await this.client.init();

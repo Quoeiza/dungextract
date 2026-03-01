@@ -9,6 +9,7 @@ class GSDK {
         this.heartbeatInterval = null;
         this.shutdownCallback = null;
         this.healthCallback = null;
+        this.activeCallback = null;
         this.connectedPlayers = [];
     }
 
@@ -45,7 +46,7 @@ class GSDK {
                     ConnectedPlayers: this.connectedPlayers,
                 };
                 
-                await got.put(`http://${this.config.heartbeatEndpoint}/v1/sessionHosts/${this.config.sessionId}`, {
+                await got.post(`http://${this.config.heartbeatEndpoint}/v1/sessionHosts/${this.config.sessionHostId}/heartbeats`, {
                     json: payload,
                     responseType: 'json'
                 });
@@ -62,6 +63,9 @@ class GSDK {
         // For now, we'll just transition to Active after a short delay.
         setTimeout(() => {
             this.state = 'Active';
+            if (this.activeCallback) {
+                this.activeCallback();
+            }
         }, 5000);
     }
     
@@ -71,6 +75,10 @@ class GSDK {
 
     registerShutdownCallback(callback) {
         this.shutdownCallback = callback;
+    }
+
+    registerActiveCallback(callback) {
+        this.activeCallback = callback;
     }
 
     registerHealthCallback(callback) {

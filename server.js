@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { WebSocketServer } from 'ws';
-import { Game, NetworkEvents } from './scripts/CoreGame.js';
+import { Game } from './scripts/CoreGame.js';
+import { NetworkEvents } from './scripts/NetworkEvents.js';
 import { GSDKInstance } from './scripts/GSDK.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -11,13 +12,36 @@ const PlayFabServer = require('playfab-sdk/Scripts/PlayFab/PlayFabServer.js');
 PlayFab.settings.titleId = process.env.TITLE_ID;
 PlayFab.settings.developerSecretKey = process.env.SERVER_SECRET_KEY;
 
-// 1. Determine port: PlayFab often assigns this via environment variables
-const port = process.env.PORT || 8080;
-
 // Start the GSDK
 GSDKInstance.start();
 
+// 1. Determine port from GSDK Config (Local Agent) or Env (Container/Cloud)
+let port = process.env.PORT || 8080;
+const connectionInfo = GSDKInstance.getGameServerConnectionInfo();
+if (connectionInfo && connectionInfo.game_port) {
+    port = parseInt(connectionInfo.game_port, 10);
+}
+
 const game = new Game();
+
+// Broadcast world events (projectiles, effects, etc.)
+game.onWorldUpdate = (event) => {
+    const message = JSON.stringify(event);
+    wss.clients.forEach(client => {
+        if (client.readyState === client.OPEN) {
+            client.send(message);
+        }
+    });
+};
+
+// Send message to specific client
+game.onUnicast = (playerId, event) => {
+    const message = JSON.stringify(event);
+    const client = Array.from(wss.clients).find(c => c.playerId === playerId);
+    if (client && client.readyState === client.OPEN) {
+        client.send(message);
+    }
+};
 
 // 2. Initialise WebSocket server
 const wss = new WebSocketServer({ port }, () => {
@@ -65,11 +89,17 @@ wss.on('connection', async (ws, req) => {
     
     const playerId = authResult.PlayFabId;
     console.log(`Client connected with PlayFabId: ${playerId}`);
+    ws.playerId = playerId;
     
     game.addPlayer(playerId, { name: authResult.TitleInfo ? authResult.TitleInfo.DisplayName : 'Unknown' });
-    ws.playerId = playerId;
 
     updateConnectedPlayers();
+
+    // Send Init Packet so client knows their ID
+    ws.send(JSON.stringify({
+        type: NetworkEvents.INIT_WORLD,
+        payload: { id: playerId }
+    }));
 
     ws.on('message', (message) => {
         try {

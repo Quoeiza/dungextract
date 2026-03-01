@@ -81,10 +81,11 @@ export default class RenderSystem {
         this.renderPool = []; // Pool for render items
         this.renderPoolIndex = 0;
         this.meshVisited = new Set(); // Reuse Set for meshing to reduce GC
-        this.cachedShadowCasters = null;
+        this.cachedShadowCasters = [];
         this.shadowCasterRevision = -1;
         this.explored = new Set(); // Track explored tiles for Auto-Explore
         this.settings = { shadows: true, particles: true, dynamicLights: true };
+        this.enemiesConfig = {};
     }
 
     applySettings(settings) {
@@ -108,6 +109,10 @@ export default class RenderSystem {
 
     setCombatSystem(combatSystem) {
         this.combatSystem = combatSystem;
+    }
+
+    setEnemiesConfig(config) {
+        this.enemiesConfig = config || {};
     }
 
     resize() {
@@ -169,8 +174,6 @@ export default class RenderSystem {
 
         // 2. Top Layer: Roofs
         this.tileMapSystem.drawRoof(ctxT, grid, viewBounds);
-
-        this.lastGridRevision = this.gridSystem ? this.gridSystem.revision : -1;
     }
 
     drawFloor(grid, width, height) {
@@ -449,7 +452,7 @@ export default class RenderSystem {
                 }
 
                 // Resurrection Check: If entity was dying but is now alive (respawned)
-                if (visual.isDying) {
+                if (visual.isDying && pos.hp > 0) {
                     visual.isDying = false;
                     visual.opacity = 0;
                     visual.x = pos.x;
@@ -641,8 +644,8 @@ export default class RenderSystem {
             let spriteKey = null;
             if (type === 'player') {
                 spriteKey = 'eliteknight.png';
-            } else if (this.combatSystem && this.combatSystem.enemiesConfig[type]) {
-                spriteKey = this.combatSystem.enemiesConfig[type].sprite;
+            } else if (this.enemiesConfig && this.enemiesConfig[type]) {
+                spriteKey = this.enemiesConfig[type].sprite;
             }
             
             const img = this.assetLoader ? this.assetLoader.getImage(spriteKey) : null;
@@ -1121,7 +1124,7 @@ export default class RenderSystem {
                 }
             }
         }
-        this.shadowCasterRevision = this.gridSystem ? this.gridSystem.revision : -1;
+        this.shadowCasterRevision = this.lastGridRevision;
     }
 
     drawShadowLayer(grid, playerVisual, entities) {
@@ -1175,7 +1178,7 @@ export default class RenderSystem {
         const endX = Math.min(grid[0].length - 1, Math.floor(endCol));
 
         // Check if we need to rebuild the static shadow casters
-        if (this.gridSystem && this.gridSystem.revision !== this.shadowCasterRevision) {
+        if (this.shadowCasterRevision !== this.lastGridRevision) {
             this.rebuildShadowCasters(grid);
         }
 
@@ -1294,8 +1297,8 @@ export default class RenderSystem {
                     let spriteKey = null;
                     if (type === 'player') {
                         spriteKey = 'eliteknight.png';
-                    } else if (this.combatSystem && this.combatSystem.enemiesConfig[type]) {
-                        spriteKey = this.combatSystem.enemiesConfig[type].sprite;
+                    } else if (this.enemiesConfig && this.enemiesConfig[type]) {
+                        spriteKey = this.enemiesConfig[type].sprite;
                     }
                     
                     const img = this.assetLoader ? this.assetLoader.getImage(spriteKey) : null;
@@ -1606,12 +1609,13 @@ export default class RenderSystem {
         return this.hullBuffer;
     }
 
-    render(grid, entities, loot, projectiles, interaction, localPlayerId, isHost) {
+    render(grid, entities, loot, projectiles, interaction, localPlayerId, isHost, gridRevision) {
         if (!entities) return;
 
         // Check if we need to update static cache
-        if (this.gridSystem && this.gridSystem.revision !== this.lastGridRevision) {
+        if (grid && (this.lastGridRevision === -1 || (gridRevision !== undefined && gridRevision !== this.lastGridRevision))) {
             this.updateStaticCache(grid);
+            this.lastGridRevision = gridRevision !== undefined ? gridRevision : 0;
         }
 
         const myPos = entities.get(localPlayerId);

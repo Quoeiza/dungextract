@@ -1,0 +1,1 @@
+"C:\Program Files\7-Zip\7z.exe" a -tzip Build.zip scripts node_modules .env package.json server.js start.bat -mx1
