@@ -1,4 +1,5 @@
 import EventEmitter from './EventEmitter.js';
+import { Intents } from './NetworkEvents.js';
 
 export const DIRECTIONS = {
     N:  { x: 0, y: -1 },
@@ -21,14 +22,12 @@ const MOVEMENT_KEYS = new Set([
 ]);
 
 const KEY_TO_INTENT = {
-    'Space': { type: 'INTERACT' },
-    'Enter': { type: 'INTERACT' },
-    'KeyI': { type: 'TOGGLE_INVENTORY' },
-    'Escape': { type: 'TOGGLE_MENU' },
-    'Tab': { type: 'AUTO_EXPLORE' },
-    'KeyO': { type: 'AUTO_EXPLORE' },
-    'KeyR': { type: 'PICKUP' },
-    'KeyF': { type: 'ABILITY' },
+    'Space': { type: Intents.PRIMARY_ACTION },
+    'KeyI': { type: Intents.TOGGLE_INVENTORY },
+    'Escape': { type: Intents.TOGGLE_MENU },
+    'Tab': { type: Intents.AUTO_EXPLORE },
+    'KeyR': { type: Intents.PICKUP },
+    'KeyF': { type: Intents.ABILITY },
 };
 
 const MOVEMENT_KEY_MAP = {
@@ -176,7 +175,7 @@ export default class InputManager extends EventEmitter {
             const num = parseInt(code.replace('Digit', ''));
             if (!isNaN(num)) {
                 const slot = num === 0 ? 9 : num - 1;
-                intent = { type: 'USE_ABILITY_SLOT', slot };
+                intent = { type: Intents.USE_ABILITY_SLOT, slot };
             }
         }
 
@@ -196,8 +195,8 @@ export default class InputManager extends EventEmitter {
         for (const key in this.keys) {
             if (this.keys[key] && MOVEMENT_KEY_MAP[key]) {
                 const move = MOVEMENT_KEY_MAP[key];
-                if(move.x !== undefined) x = move.x;
-                if(move.y !== undefined) y = move.y;
+                if(move.x !== undefined) x += move.x;
+                if(move.y !== undefined) y += move.y;
             }
         }
         
@@ -205,7 +204,7 @@ export default class InputManager extends EventEmitter {
         const shift = !!(this.keys['ShiftLeft'] || this.keys['ShiftRight']);
 
         if (dir.x !== 0 || dir.y !== 0) {
-            return { type: 'MOVE', direction: dir, shift };
+            return { type: Intents.MOVE, direction: dir, shift };
         }
         return null;
     }

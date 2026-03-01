@@ -1,3 +1,5 @@
+import { getEl, createEl } from './domUtils.js';
+
 export class InventoryUI {
     constructor(lootSystem) {
         this.lootSystem = lootSystem;
@@ -6,10 +8,10 @@ export class InventoryUI {
     }
 
     init() {
-        this._setupSlotDrop(document.getElementById('slot-weapon'), 'weapon');
-        this._setupSlotDrop(document.getElementById('slot-armor'), 'armor');
+        this._setupSlotDrop(getEl('slot-weapon'), 'weapon');
+        this._setupSlotDrop(getEl('slot-armor'), 'armor');
 
-        const grid = document.getElementById('inventory-grid');
+        const grid = getEl('inventory-grid');
         if (grid) {
             grid.addEventListener('dragover', (e) => e.preventDefault());
             grid.addEventListener('drop', (e) => {
@@ -32,7 +34,7 @@ export class InventoryUI {
     }
 
     renderInventory(myId) {
-        const grid = document.getElementById('inventory-grid');
+        const grid = getEl('inventory-grid');
         const inv = this.lootSystem.getInventory(myId);
         const equip = this.lootSystem.getEquipment(myId);
 
@@ -45,18 +47,14 @@ export class InventoryUI {
         grid.innerHTML = '';
         // Fixed size grid (e.g. 15 slots)
         for (let i = 0; i < 15; i++) {
-            const cell = document.createElement('div');
-            cell.className = 'inv-slot';
+            const cell = createEl('div', { className: 'inv-slot', parent: grid });
             
             if (inv[i]) {
                 const item = inv[i];
-                const icon = document.createElement('div');
-                icon.className = 'item-icon';
-                // Simple colour coding based on type
+                const icon = createEl('div', { className: 'item-icon' });
                 const type = this.lootSystem.getItemType(item.itemId);
                 icon.style.backgroundColor = type === 'weapon' ? '#d65' : type === 'armor' ? '#56d' : '#5d5';
                 
-                // Tooltip Events
                 const showTip = (e) => this.showTooltip(e, item);
                 icon.addEventListener('mouseenter', showTip);
                 icon.addEventListener('mousemove', showTip);
@@ -64,10 +62,7 @@ export class InventoryUI {
                 icon.addEventListener('click', (e) => { e.stopPropagation(); showTip(e); });
 
                 if (item.count > 1) {
-                    const countEl = document.createElement('span');
-                    countEl.className = 'item-count';
-                    countEl.innerText = item.count;
-                    icon.appendChild(countEl);
+                    createEl('span', { className: 'item-count', content: item.count, parent: icon });
                 }
                 
                 cell.draggable = true;
@@ -78,21 +73,18 @@ export class InventoryUI {
                     this.hideTooltip();
                 });
             }
-            grid.appendChild(cell);
         }
 
         // Render Equip Slots
         const renderSlot = (slotName) => {
-            const el = document.getElementById(`slot-${slotName}`);
+            const el = getEl(`slot-${slotName}`);
             if (!el) return;
             el.innerHTML = '';
             const item = equip[slotName];
             if (item) {
-                const icon = document.createElement('div');
-                icon.className = 'item-icon';
+                const icon = createEl('div', { className: 'item-icon', parent: el });
                 icon.style.backgroundColor = slotName.startsWith('quick') ? '#5d5' : (slotName === 'weapon' ? '#d65' : '#56d');
                 
-                // Tooltip Events
                 const showTip = (e) => this.showTooltip(e, item);
                 icon.addEventListener('mouseenter', showTip);
                 icon.addEventListener('mousemove', showTip);
@@ -100,21 +92,14 @@ export class InventoryUI {
                 icon.addEventListener('click', (e) => { e.stopPropagation(); showTip(e); });
 
                 if (item.count > 1) {
-                    const countEl = document.createElement('span');
-                    countEl.className = 'item-count';
-                    countEl.innerText = item.count;
-                    icon.appendChild(countEl);
+                    createEl('span', { className: 'item-count', content: item.count, parent: icon });
                 }
 
-                el.appendChild(icon);
-                
                 icon.draggable = true;
                 icon.addEventListener('dragstart', (e) => {
                     e.dataTransfer.setData('text/plain', JSON.stringify({ itemId: item.itemId, source: slotName }));
                     this.hideTooltip();
                 });
-            } else {
-                // Container is not draggable, only the icon inside
             }
         };
 
@@ -122,20 +107,17 @@ export class InventoryUI {
         renderSlot('armor');
         
         const slotsContainer = document.querySelector('.equipment-slots');
-        if (slotsContainer && !document.getElementById('slot-quick1')) {
-            const quickContainer = document.createElement('div');
-            quickContainer.style.display = 'flex';
-            quickContainer.style.gap = '5px';
+        if (slotsContainer && !getEl('slot-quick1')) {
+            const quickContainer = createEl('div', { parent: slotsContainer, style: { display: 'flex', gap: '5px' } });
             quickContainer.innerHTML = `
                 <div class="slot-container"><div id="slot-quick1" class="equip-slot" data-slot="quick1"></div><span>1</span></div>
                 <div class="slot-container"><div id="slot-quick2" class="equip-slot" data-slot="quick2"></div><span>2</span></div>
                 <div class="slot-container"><div id="slot-quick3" class="equip-slot" data-slot="quick3"></div><span>3</span></div>
             `;
-            slotsContainer.appendChild(quickContainer);
             
-            this._setupSlotDrop(document.getElementById('slot-quick1'), 'quick1');
-            this._setupSlotDrop(document.getElementById('slot-quick2'), 'quick2');
-            this._setupSlotDrop(document.getElementById('slot-quick3'), 'quick3');
+            this._setupSlotDrop(getEl('slot-quick1'), 'quick1');
+            this._setupSlotDrop(getEl('slot-quick2'), 'quick2');
+            this._setupSlotDrop(getEl('slot-quick3'), 'quick3');
         }
         renderSlot('quick1');
         renderSlot('quick2');
@@ -143,7 +125,7 @@ export class InventoryUI {
     }
 
     updateQuickSlotUI(myId) {
-        const hud = document.getElementById('quick-slots-hud');
+        const hud = getEl('quick-slots-hud');
         if (!hud) return;
         
         const equip = this.lootSystem.getEquipment(myId);
@@ -175,18 +157,16 @@ export class InventoryUI {
     }
 
     showTooltip(e, item) {
-        const tooltip = document.getElementById('game-tooltip');
+        const tooltip = getEl('game-tooltip');
         if (!tooltip) return;
         
         const text = this._generateTooltip(item);
         tooltip.innerHTML = text.replace(/\n/g, '<br>');
         tooltip.style.display = 'block';
         
-        // Positioning
         let x = e.clientX + 15;
         let y = e.clientY + 15;
         
-        // Bounds check
         if (x + 220 > window.innerWidth) x = e.clientX - 225;
         if (y + 150 > window.innerHeight) y = e.clientY - 160;
 
@@ -195,7 +175,7 @@ export class InventoryUI {
     }
 
     hideTooltip() {
-        const tooltip = document.getElementById('game-tooltip');
+        const tooltip = getEl('game-tooltip');
         if (tooltip) tooltip.style.display = 'none';
     }
 

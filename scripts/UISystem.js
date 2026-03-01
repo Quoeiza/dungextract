@@ -1,11 +1,14 @@
 import { Lobby } from './Lobby.js';
 import { InventoryUI } from './InventoryUI.js';
+import { getEl, createEl, show, toggle, hide } from './domUtils.js';
+import SettingsModal from './SettingsModal.js';
 
 export default class UISystem {
     constructor(game) {
         this.game = game;
         this.lastTooltipUpdate = 0;
         this.inventoryUI = new InventoryUI(this.game.lootSystem);
+        this.settingsModal = new SettingsModal(this);
         this.inventoryUI.setCallbacks(
             (itemId, slot) => this.game.handleEquipItem(itemId, slot),
             (slot) => this.game.handleUnequipItem(slot)
@@ -13,7 +16,7 @@ export default class UISystem {
     }
 
     setupLobby() {
-        const uiLayer = document.getElementById('ui-layer');
+        const uiLayer = getEl('ui-layer');
         new Lobby(
             uiLayer,
             this.game.playerData,
@@ -45,149 +48,114 @@ export default class UISystem {
     }
 
     setupLobbySettings() {
-        const btn = document.getElementById('btn-lobby-settings');
+        const btn = getEl('btn-lobby-settings');
         if (btn) btn.onclick = () => this.toggleSettingsMenu();
     }
 
-    setupUI() {
-        ['room-code-display'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.classList.remove('hidden');
-        });
-
-        const statsBar = document.getElementById('stats-bar');
-        const invModal = document.getElementById('inventory-modal');
-        if (statsBar && invModal) {
-            const grid = document.getElementById('inventory-grid');
-            if (grid) invModal.insertBefore(statsBar, grid);
-            else invModal.prepend(statsBar);
-            
-            statsBar.style.position = 'static';
-            statsBar.style.flexDirection = 'row';
-            statsBar.style.justifyContent = 'space-between';
-            statsBar.style.marginBottom = '10px';
-            statsBar.style.borderBottom = '1px solid #555';
-            statsBar.style.paddingBottom = '5px';
-            statsBar.style.width = '100%';
-            statsBar.classList.remove('hidden');
-        }
-
-        const uiLayer = document.getElementById('ui-layer');
-        if (uiLayer && !document.getElementById('game-timer')) {
-            const timer = document.createElement('div');
-            timer.id = 'game-timer';
-            uiLayer.appendChild(timer);
-        }
-
-        let btnToggle = document.getElementById('btn-inventory-toggle');
-        if (!btnToggle) {
-            btnToggle = document.createElement('button');
-            btnToggle.id = 'btn-inventory-toggle';
-        }
-        uiLayer.appendChild(btnToggle);
-        btnToggle.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>`;
-
-        let btnSettings = document.getElementById('btn-settings-toggle');
-        if (!btnSettings) {
-            btnSettings = document.createElement('button');
-            btnSettings.id = 'btn-settings-toggle';
-            btnSettings.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
-        }
-        uiLayer.appendChild(btnSettings);
-        btnSettings.onclick = () => this.toggleSettingsMenu();
-
-        const modal = document.getElementById('inventory-modal');
-        const btnClose = document.getElementById('btn-inventory-close');
-
-        const toggleInv = () => {
-            modal.classList.toggle('hidden');
+    toggleInventory() {
+        const modal = getEl('inventory-modal');
+        if (modal) {
+            toggle(modal);
             if (!modal.classList.contains('hidden')) {
                 this.renderInventory();
             }
-        };
+        }
+    }
 
-        if (btnToggle) btnToggle.onclick = toggleInv;
-        if (btnClose) btnClose.onclick = toggleInv;
+    setupUI() {
+        show(getEl('room-code-display'));
+
+        const statsBar = getEl('stats-bar');
+        const invModal = getEl('inventory-modal');
+        if (statsBar && invModal) {
+            const grid = getEl('inventory-grid');
+            if (grid) invModal.insertBefore(statsBar, grid);
+            else invModal.prepend(statsBar);
+            
+            Object.assign(statsBar.style, {
+                position: 'static',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                marginBottom: '10px',
+                borderBottom: '1px solid #555',
+                paddingBottom: '5px',
+                width: '100%'
+            });
+            show(statsBar);
+        }
+
+        const uiLayer = getEl('ui-layer');
+        if (uiLayer && !getEl('game-timer')) {
+            createEl('div', { id: 'game-timer', parent: uiLayer });
+        }
+
+        let btnToggle = getEl('btn-inventory-toggle');
+        if (!btnToggle) {
+            btnToggle = createEl('button', { id: 'btn-inventory-toggle', parent: uiLayer });
+        }
+        btnToggle.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>`;
+
+        let btnSettings = getEl('btn-settings-toggle');
+        if (!btnSettings) {
+            btnSettings = createEl('button', {
+                id: 'btn-settings-toggle',
+                parent: uiLayer,
+                content: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`
+            });
+        }
+        btnSettings.onclick = () => this.toggleSettingsMenu();
+
+        if (btnToggle) btnToggle.onclick = () => this.toggleInventory();
+        const btnClose = getEl('btn-inventory-close');
+        if (btnClose) btnClose.onclick = () => this.toggleInventory();
 
         this.inventoryUI.init();
 
-        const btnGroundClose = document.getElementById('btn-ground-close');
-        if (btnGroundClose) btnGroundClose.onclick = () => document.getElementById('ground-loot-modal').classList.add('hidden');
+        const btnGroundClose = getEl('btn-ground-close');
+        if (btnGroundClose) btnGroundClose.onclick = () => hide(getEl('ground-loot-modal'));
 
-        if (!document.getElementById('loot-notification')) {
-            const notif = document.createElement('div');
-            notif.id = 'loot-notification';
-            uiLayer.appendChild(notif);
+        if (!getEl('loot-notification')) {
+            createEl('div', { id: 'loot-notification', parent: uiLayer });
         }
-
-        if (!document.getElementById('quick-slots-hud')) {
-            const hud = document.createElement('div');
-            hud.id = 'quick-slots-hud';
-            uiLayer.appendChild(hud);
+        if (!getEl('quick-slots-hud')) {
+            createEl('div', { id: 'quick-slots-hud', parent: uiLayer });
         }
 
         this.setupCanvasDrop();
-
-        // Ensure settings modal exists for dynamic rendering
-        let settingsModal = document.getElementById('settings-modal');
-        if (!settingsModal) {
-            settingsModal = document.createElement('div');
-            settingsModal.id = 'settings-modal';
-            settingsModal.className = 'hidden';
-            const uiLayer = document.getElementById('ui-layer') || document.body;
-            uiLayer.appendChild(settingsModal);
-        }
 
         this.createInteractionUI();
     }
 
     createInteractionUI() {
         const uiLayer = document.body;
-
-        if (!document.getElementById('game-tooltip')) {
-            const tooltip = document.createElement('div');
-            tooltip.id = 'game-tooltip';
-            Object.assign(tooltip.style, {
-                position: 'absolute',
-                padding: '8px',
-                background: 'rgba(10, 10, 10, 0.9)',
-                color: '#eee',
-                border: '1px solid #444',
-                borderRadius: '4px',
-                pointerEvents: 'none',
-                display: 'none',
-                zIndex: '2000',
-                fontSize: '12px',
-                fontFamily: '"Germania One", cursive',
-                whiteSpace: 'nowrap',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.5)'
+        if (!getEl('game-tooltip')) {
+            createEl('div', {
+                id: 'game-tooltip',
+                parent: uiLayer,
+                style: {
+                    position: 'absolute', padding: '8px', background: 'rgba(10, 10, 10, 0.9)', color: '#eee',
+                    border: '1px solid #444', borderRadius: '4px', pointerEvents: 'none', display: 'none',
+                    zIndex: '2000', fontSize: '12px', fontFamily: '"Germania One", cursive',
+                    whiteSpace: 'nowrap', boxShadow: '0 2px 4px rgba(0,0,0,0.5)'
+                }
             });
-            uiLayer.appendChild(tooltip);
         }
-
-        if (!document.getElementById('game-context-menu')) {
-            const menu = document.createElement('div');
-            menu.id = 'game-context-menu';
-            Object.assign(menu.style, {
-                position: 'absolute',
-                background: '#1a1a1a',
-                border: '1px solid #555',
-                minWidth: '140px',
-                zIndex: '2001',
-                display: 'none',
-                flexDirection: 'column',
-                boxShadow: '0 4px 6px rgba(0,0,0,0.5)'
+        if (!getEl('game-context-menu')) {
+            const menu = createEl('div', {
+                id: 'game-context-menu',
+                parent: uiLayer,
+                style: {
+                    position: 'absolute', background: '#1a1a1a', border: '1px solid #555',
+                    minWidth: '140px', zIndex: '2001', display: 'none', flexDirection: 'column',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.5)'
+                }
             });
-            uiLayer.appendChild(menu);
-
-            window.addEventListener('click', () => {
-                menu.style.display = 'none';
-            });
+            window.addEventListener('click', () => hide(menu));
         }
     }
 
     setupCanvasDrop() {
-        const canvas = document.getElementById('game-canvas');
+        const canvas = getEl('game-canvas');
         canvas.addEventListener('dragover', (e) => e.preventDefault());
         canvas.addEventListener('drop', (e) => {
             e.preventDefault();
@@ -207,33 +175,29 @@ export default class UISystem {
     }
 
     showGroundLoot(items) {
-        const modal = document.getElementById('ground-loot-modal');
-        const grid = document.getElementById('ground-grid');
-        modal.classList.remove('hidden');
+        const modal = getEl('ground-loot-modal');
+        const grid = getEl('ground-grid');
+        show(modal);
         grid.innerHTML = '';
 
         items.forEach(loot => {
-            const cell = document.createElement('div');
-            cell.className = 'inv-slot';
-            
-            const icon = document.createElement('div');
-            icon.className = 'item-icon';
+            const cell = createEl('div', { className: 'inv-slot', parent: grid });
             const type = this.game.lootSystem.getItemType(loot.itemId);
-            icon.style.backgroundColor = type === 'weapon' ? '#d65' : type === 'armor' ? '#56d' : '#5d5';
-            icon.title = loot.itemId;
-            
+            createEl('div', {
+                className: 'item-icon',
+                parent: cell,
+                title: loot.itemId,
+                style: { backgroundColor: type === 'weapon' ? '#d65' : type === 'armor' ? '#56d' : '#5d5' }
+            });
             cell.onclick = () => {
                 this.game.handleInteractWithLoot(loot);
-                modal.classList.add('hidden');
+                hide(modal);
             };
-
-            cell.appendChild(icon);
-            grid.appendChild(cell);
         });
     }
 
     showNotification(text) {
-        const el = document.getElementById('loot-notification');
+        const el = getEl('loot-notification');
         if (el) {
             el.innerText = text;
             el.style.opacity = '1';
@@ -242,17 +206,17 @@ export default class UISystem {
     }
 
     updateGoldUI() {
-        const el = document.getElementById('gold-val');
+        const el = getEl('gold-val');
         if (el) el.innerText = this.game.playerData.gold;
     }
 
     updateLobbyStatus(message) {
-        const el = document.getElementById('lobby-status');
+        const el = getEl('lobby-status');
         if (el) el.innerText = message;
     }
 
     updateTimer(seconds) {
-        const el = document.getElementById('game-timer');
+        const el = getEl('game-timer');
         if (el) {
             const m = Math.floor(seconds / 60);
             const s = Math.floor(seconds % 60);
@@ -265,7 +229,7 @@ export default class UISystem {
         if (this.lastTooltipUpdate && now - this.lastTooltipUpdate < 50) return;
         this.lastTooltipUpdate = now;
 
-        const tooltip = document.getElementById('game-tooltip');
+        const tooltip = getEl('game-tooltip');
         if (!tooltip) return;
 
         const cam = this.game.renderSystem.camera;
@@ -304,12 +268,12 @@ export default class UISystem {
             tooltip.style.left = `${data.x + 16}px`;
             tooltip.style.top = `${data.y + 16}px`;
         } else {
-            tooltip.style.display = 'none';
+            hide(tooltip);
         }
     }
 
     showContextMenu(data) {
-        const menu = document.getElementById('game-context-menu');
+        const menu = getEl('game-context-menu');
         if (!menu) return;
 
         menu.innerHTML = '';
@@ -345,143 +309,49 @@ export default class UISystem {
         if (actions.length === 0) return;
 
         actions.forEach(item => {
-            const el = document.createElement('div');
-            el.innerText = item.label;
-            Object.assign(el.style, {
-                padding: '10px 15px',
-                cursor: 'pointer',
-                color: '#eee',
-                borderBottom: '1px solid #333',
-                fontSize: '14px',
-                fontFamily: '"Germania One", cursive'
+            const el = createEl('div', {
+                content: item.label,
+                parent: menu,
+                style: {
+                    padding: '10px 15px', cursor: 'pointer', color: '#eee',
+                    borderBottom: '1px solid #333', fontSize: '14px', fontFamily: '"Germania One", cursive'
+                }
             });
             el.onmouseover = () => el.style.background = '#333';
             el.onmouseout = () => el.style.background = 'transparent';
             el.onclick = (e) => {
                 e.stopPropagation();
                 item.action();
-                menu.style.display = 'none';
+                hide(menu);
             };
-            menu.appendChild(el);
         });
 
         menu.style.left = `${data.x}px`;
         menu.style.top = `${data.y}px`;
-        menu.style.display = 'flex';
+        show(menu);
     }
 
     hideContextMenu() {
-        const ctxMenu = document.getElementById('game-context-menu');
-        if (ctxMenu) ctxMenu.style.display = 'none';
+        hide(getEl('game-context-menu'));
     }
 
     toggleSettingsMenu() {
-        let modal = document.getElementById('settings-modal');
-        
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'settings-modal';
-            modal.className = 'hidden';
-            const uiLayer = document.getElementById('ui-layer') || document.body;
-            uiLayer.appendChild(modal);
-        }
-        
-        if (modal.classList.contains('hidden')) {
-            // Open and Render
-            modal.classList.remove('hidden');
-            this.renderSettingsContent(modal);
-        } else {
-            modal.classList.add('hidden');
-        }
-    }
-
-    renderSettingsContent(modal) {
-        const s = this.game.settings;
-        
-        modal.innerHTML = `
-            <div class="modal-header">
-                <h3>Settings</h3>
-                <button id="btn-settings-close" style="padding:2px 8px;">X</button>
-            </div>
-            <div style="display:flex; flex-direction:column; gap:10px; text-align:left; padding-top:10px;">
-                <div>
-                    <label style="display:block; margin-bottom:4px;">Master Volume</label>
-                    <input type="range" min="0" max="1" step="0.1" value="${s.masterVolume}" id="set-vol-master" style="width:100%; display:block;">
-                </div>
-                <div>
-                    <label style="display:block; margin-bottom:4px;">Music Volume</label>
-                    <input type="range" min="0" max="1" step="0.1" value="${s.musicVolume}" id="set-vol-music" style="width:100%; display:block;">
-                </div>
-                <div>
-                    <label style="display:block; margin-bottom:4px;">SFX Volume</label>
-                    <input type="range" min="0" max="1" step="0.1" value="${s.sfxVolume}" id="set-vol-sfx" style="width:100%; display:block;">
-                </div>
-                <hr style="width:100%; border:0; border-top:1px solid #555;">
-                <label><input type="checkbox" id="set-lights" ${s.dynamicLights ? 'checked' : ''}> Dynamic Lighting</label>
-                <label><input type="checkbox" id="set-shadows" ${s.shadows ? 'checked' : ''} ${!s.dynamicLights ? 'disabled' : ''}> Enable Shadows</label>
-                <label><input type="checkbox" id="set-particles" ${s.particles ? 'checked' : ''}> Enable Particles</label>
-                <hr style="width:100%; border:0; border-top:1px solid #555;">
-                <button id="btn-quit-match">Quit to Lobby</button>
-            </div>
-        `;
-
-        // Bind Events
-        const update = () => {
-            const lightsCb = document.getElementById('set-lights');
-            const shadowsCb = document.getElementById('set-shadows');
-            
-            // Dependency Logic
-            if (!lightsCb.checked) {
-                shadowsCb.checked = false;
-                shadowsCb.disabled = true;
-            } else {
-                shadowsCb.disabled = false;
-            }
-
-            this.game.updateSettings({
-                masterVolume: parseFloat(document.getElementById('set-vol-master').value),
-                musicVolume: parseFloat(document.getElementById('set-vol-music').value),
-                sfxVolume: parseFloat(document.getElementById('set-vol-sfx').value),
-                shadows: shadowsCb.checked,
-                particles: document.getElementById('set-particles').checked,
-                dynamicLights: lightsCb.checked
-            });
-        };
-
-        modal.querySelectorAll('input').forEach(el => el.onchange = update);
-
-        document.getElementById('btn-settings-close').onclick = () => modal.classList.add('hidden');
-        
-        const quitBtn = document.getElementById('btn-quit-match');
-        if (this.game.state.connected) {
-            quitBtn.onclick = () => this.game.returnToLobby();
-        } else {
-            quitBtn.style.display = 'none';
-        }
+        this.settingsModal.toggle();
     }
 
     showHumansEscaped(msg) {
-        if (document.getElementById('game-over-screen')) return;
-        const ui = document.getElementById('ui-layer');
+        if (getEl('game-over-screen')) return;
+        const ui = getEl('ui-layer');
 
-        const screen = document.createElement('div');
-        screen.id = 'game-over-screen';
-        Object.assign(screen.style, {
-            position: 'absolute',
-            top: '0',
-            left: '0',
-            width: '100%',
-            height: '100%',
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: '2000',
-            textAlign: 'center',
-            color: 'white',
-            fontFamily: '"Germania One", cursive',
-            pointerEvents: 'auto'
+        const screen = createEl('div', {
+            id: 'game-over-screen',
+            parent: ui,
+            style: {
+                position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+                backgroundColor: 'rgba(0, 0, 0, 0.85)', display: 'flex', flexDirection: 'column',
+                justifyContent: 'center', alignItems: 'center', zIndex: '2000', textAlign: 'center',
+                color: 'white', fontFamily: '"Germania One", cursive', pointerEvents: 'auto'
+            }
         });
 
         screen.innerHTML = `
@@ -492,13 +362,11 @@ export default class UISystem {
             <button id="btn-return-lobby" style="padding: 15px 30px; font-size: 1.2rem; cursor: pointer; background: #444; color: white; border: 1px solid #666;">Return to Lobby</button>
         `;
         
-        ui.appendChild(screen);
-        
         const btn = screen.querySelector('#btn-return-lobby');
         if (btn) btn.onclick = () => this.game.returnToLobby();
 
         ['room-code-display', 'game-timer'].forEach(id => {
-            const el = document.getElementById(id);
+            const el = getEl(id);
             if (el) {
                 el.style.zIndex = '2001';
                 if (window.getComputedStyle(el).position === 'static') {

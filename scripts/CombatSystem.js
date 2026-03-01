@@ -118,6 +118,8 @@ export default class CombatSystem extends EventEmitter {
         const targetStats = this.stats.get(targetId);
         const sourceStats = this.stats.get(sourceId);
         if (!targetStats) return;
+        
+        if (targetStats.hp <= 0) return; // Already dead, ignore damage
 
         // Apply Buffs
         let finalDamage = amount;
@@ -161,8 +163,14 @@ export default class CombatSystem extends EventEmitter {
 
     handleDeath(entityId, killerId) {
         const stats = this.stats.get(entityId);
-        this.stats.delete(entityId);
+        // Do NOT delete stats here. We need them for the death animation and type resolution.
+        // Stats will be cleaned up when the entity is removed from the grid/game.
         this.emit('death', { entityId, killerId, stats });
+    }
+
+    removeEntity(entityId) {
+        this.stats.delete(entityId);
+        this.cooldowns.delete(entityId);
     }
 
     getStats(id) {
@@ -203,7 +211,7 @@ export default class CombatSystem extends EventEmitter {
             if (id === myId) continue;
 
             const stats = this.stats.get(id);
-            if (!stats) continue;
+            if (!stats || stats.hp <= 0) continue;
 
             let isHostile = false;
             if (myStats.team === 'monster') {
@@ -229,7 +237,7 @@ export default class CombatSystem extends EventEmitter {
     getHumanCount() {
         let count = 0;
         for (const stats of this.stats.values()) {
-            if (stats.isPlayer && stats.team === 'player') count++;
+            if (stats.isPlayer && stats.team === 'player' && stats.hp > 0) count++;
         }
         return count;
     }
@@ -298,8 +306,20 @@ export default class CombatSystem extends EventEmitter {
         const type = this.getRandomMonsterType();
         const spawn = gridSystem.getSpawnPoint(false);
         
-        gridSystem.addEntity(entityId, spawn.x, spawn.y);
+        // Ensure entity exists in grid or update position if it does
+        if (!gridSystem.entities.has(entityId)) {
+            gridSystem.addEntity(entityId, spawn.x, spawn.y);
+        } else {
+            const pos = gridSystem.entities.get(entityId);
+            gridSystem.updateSpatialMap(entityId, pos.x, pos.y, spawn.x, spawn.y);
+            pos.x = spawn.x;
+            pos.y = spawn.y;
+        }
+
         this.registerEntity(entityId, type, true);
+        // Override team to monster explicitly just in case
+        const stats = this.getStats(entityId);
+        if (stats) stats.team = 'monster';
         
         return { type, x: spawn.x, y: spawn.y };
     }

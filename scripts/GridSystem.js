@@ -341,6 +341,17 @@ export default class GridSystem {
         this.spatialMap.set(this.getKey(newX, newY), id);
     }
 
+    setCollidable(id, collidable) {
+        const pos = this.entities.get(id);
+        if (!pos) return;
+        const key = this.getKey(pos.x, pos.y);
+        if (collidable) {
+            this.spatialMap.set(key, id);
+        } else if (this.spatialMap.get(key) === id) {
+            this.spatialMap.delete(key);
+        }
+    }
+
     getEntityAt(x, y) {
         if (x < 0 || x >= this.width || y < 0 || y >= this.height) return null;
         return this.spatialMap.get(this.getKey(x, y)) || null;

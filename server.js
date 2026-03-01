@@ -98,7 +98,12 @@ wss.on('connection', async (ws, req) => {
     // Send Init Packet so client knows their ID
     ws.send(JSON.stringify({
         type: NetworkEvents.INIT_WORLD,
-        payload: { id: playerId }
+        payload: { 
+            id: playerId,
+            grid: game.gridSystem.grid,
+            width: game.gridSystem.width,
+            height: game.gridSystem.height
+        }
     }));
 
     ws.on('message', (message) => {

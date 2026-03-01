@@ -1,16 +1,19 @@
 
 import EventEmitter from './EventEmitter.js';
 
+const PLAYFAB_TITLE_ID = "123FF2"; // TODO: Move to a config file
+
 class PlayFabManager extends EventEmitter {
     constructor() {
         super();
-        this.titleId = "123FF2"; 
+        this.titleId = PLAYFAB_TITLE_ID; 
         if (typeof PlayFab !== 'undefined') {
             PlayFab.settings.titleId = this.titleId;
         } else {
             console.error("PlayFab SDK not loaded. Check internet connection or adblocker.");
         }
         this.entityKey = null;
+        this.sessionTicket = null;
     }
 
     _callPlayFabApi(apiCall, request, callback) {
@@ -37,11 +40,16 @@ class PlayFabManager extends EventEmitter {
         this._callPlayFabApi(PlayFabClientSDK.LoginWithEmailAddress, loginRequest, (result, error) => {
             if (result) {
                 this.entityKey = result.data.EntityToken.Entity;
+                this.sessionTicket = result.data.SessionTicket;
                 this.emit('loginSuccess', result.data);
             } else {
                 this.emit('loginFailure', this.handleError(error));
             }
         });
+    }
+
+    getSessionTicket() {
+        return this.sessionTicket;
     }
 
     register(email, password) {

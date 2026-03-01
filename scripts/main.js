@@ -117,6 +117,7 @@ class App {
         this.uiSystem.setupUI();
         
         this.client = new Client(`ws://${host}:${port}`, ticket);
+        this.client.on('disconnected', () => this.returnToLobby());
         await this.client.init();
         
         // Hook up UI to Client

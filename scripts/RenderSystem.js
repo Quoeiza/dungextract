@@ -217,7 +217,7 @@ export default class RenderSystem {
 
                     // Re-add procedural rendering for special tiles
                     if (tile === 4) { // Lava
-                        const glse = Math.sin(Date.now() / 300);
+                        const pulse = Math.sin(Date.now() / 300);
                         this.ctx.fillStyle = `rgb(${200 + pulse * 50}, 50, 0)`;
                         this.ctx.fillRect(screenX, screenY, ts, ts);
                         this.ctx.fillStyle = '#ffeb3b';
@@ -369,7 +369,7 @@ export default class RenderSystem {
 
     triggerDeath(id) {
         const visual = this.visualEntities.get(id);
-        if (visual) {
+        if (visual && !visual.isDying) {
             visual.isDying = true;
             visual.deathStart = Date.now();
         }
@@ -452,7 +452,7 @@ export default class RenderSystem {
                 }
 
                 // Resurrection Check: If entity was dying but is now alive (respawned)
-                if (visual.isDying && pos.hp > 0) {
+                if (visual.isDying && pos.hp > 0 && pos.hp !== undefined) {
                     visual.isDying = false;
                     visual.opacity = 0;
                     visual.x = pos.x;
@@ -461,6 +461,11 @@ export default class RenderSystem {
                     visual.startY = pos.y;
                     visual.targetX = pos.x;
                     visual.targetY = pos.y;
+                }
+
+                // Auto-trigger death if state says dead but visual is alive
+                if (pos.hp <= 0 && !visual.isDying) {
+                    this.triggerDeath(id);
                 }
 
                 // Detect authoritative position change (e.g. from network update)
@@ -629,10 +634,18 @@ export default class RenderSystem {
             item.screenY = screenY;
 
             // Shadow
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-            ctx.beginPath();
-            ctx.ellipse(screenX + (this.tileSize * 0.5), screenY + (this.tileSize * 0.875), this.tileSize * 0.3125, this.tileSize * 0.125, 0, 0, Math.PI * 2);
-            ctx.fill();
+            let shadowAlpha = 0.5;
+            if (visual.isDying) {
+                const duration = 750;
+                const progress = (now - visual.deathStart) / duration;
+                shadowAlpha = Math.max(0, 0.5 * (1 - progress));
+            }
+            if (shadowAlpha > 0.01) {
+                ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
+                ctx.beginPath();
+                ctx.ellipse(screenX + (this.tileSize * 0.5), screenY + (this.tileSize * 0.875), this.tileSize * 0.3125, this.tileSize * 0.125, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
             // Determine Sprite
             let type = pos.type;
@@ -1686,7 +1699,7 @@ export default class RenderSystem {
             this.ctx.fillStyle = '#ffffff';
             this.ctx.font = '24px "Germania One"';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText("Downloading Map...", 0, 0);
+            this.ctx.fillText("Downloading Map...", this.canvas.width / (2 * this.scale), this.canvas.height / (2 * this.scale));
         }
 
         this.updateAndDrawParticles();

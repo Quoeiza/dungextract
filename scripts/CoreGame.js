@@ -1,9 +1,9 @@
-
-
-import { NetworkEvents } from './NetworkEvents.js';
+// Test comment
+import { NetworkEvents, Intents } from './NetworkEvents.js';
 import GridSystem from './GridSystem.js';
 import CombatSystem from './CombatSystem.js';
 import LootSystem from './LootSystem.js';
+import ProjectileSystem from './ProjectileSystem.js';
 import AISystem from './AISystem.js';
 import fs from 'fs';
 import path from 'path';
@@ -132,6 +132,7 @@ export class Game {
         );
         this.combatSystem = new CombatSystem(this.config.enemies);
         this.lootSystem = new LootSystem(this.config.items);
+        this.projectileSystem = new ProjectileSystem(this.combatSystem);
         this.combatSystem.setLootSystem(this.lootSystem);
         this.aiSystem = new AISystem(this.gridSystem, this.combatSystem, this.lootSystem);
 
@@ -141,6 +142,9 @@ export class Game {
             escapeOpen: false,
             gameOver: false,
         };
+        
+        this.deadEntities = []; // { id, despawnTick, isPlayer }
+        this.lastSentGridRevision = -1;
 
         this.onPlayerRemoved = null;
         this.onWorldUpdate = null;
@@ -204,13 +208,41 @@ export class Game {
             }
         }
 
-        this.combatSystem.updateProjectiles(dt, this.worldState.projectiles, this.gridSystem);
+        this.projectileSystem.updateProjectiles(dt, this.worldState.projectiles, this.gridSystem);
         this.gridSystem.processLavaDamage(dt, this.combatSystem);
         this.aiSystem.update(this.ticker.tick, this.ticker.timePerTick, (attackerId, targetId) => this.performAttack(attackerId, targetId));
+        this.combatSystem.updateBuffs(this.ticker.tick);
+
+        // Process despawns
+        for (let i = this.deadEntities.length - 1; i >= 0; i--) {
+            const entry = this.deadEntities[i];
+            if (this.ticker.tick >= entry.despawnTick) {
+                console.log(`[CoreGame] Despawning entity ${entry.id} at tick ${this.ticker.tick}`);
+                if (entry.isPlayer) {
+                    // Respawn as monster
+                    const spawn = this.combatSystem.respawnPlayerAsMonster(entry.id, this.gridSystem);
+                    if (this.onWorldUpdate) {
+                        this.onWorldUpdate({ 
+                            type: NetworkEvents.RESPAWN_MONSTER, 
+                            payload: { id: entry.id, ...spawn } 
+                        });
+                    }
+                } else {
+                    // Permanently remove monster
+                    this.gridSystem.removeEntity(entry.id);
+                    this.combatSystem.removeEntity(entry.id);
+                }
+                this.deadEntities.splice(i, 1);
+            }
+        }
     }
 
     handleEntityDeath(data) {
-        const { entityId } = data;
+        const { entityId, stats } = data;
+        console.log(`[CoreGame] Entity died: ${entityId}`);
+
+        // Disable collision immediately so players can walk through the dying entity
+        this.gridSystem.setCollidable(entityId, false);
         
         // Notify clients to play animation
         if (this.onWorldUpdate) {
@@ -220,48 +252,32 @@ export class Game {
             });
         }
 
-        // Remove entity after delay (allow animation to play)
-        setTimeout(() => {
-            if (this.combatSystem.stats.has(entityId)) {
-                if (this.combatSystem.stats.get(entityId).isPlayer) {
-                    this.removePlayer(entityId); 
-                } else {
-                    this.gridSystem.removeEntity(entityId);
-                    this.combatSystem.stats.delete(entityId);
+        const isPlayer = stats && stats.isPlayer;
+
+        if (isPlayer) {
+            // Check if any humans remain
+            const humanCount = this.combatSystem.getHumanCount();
+            if (humanCount <= 0) {
+                // Game Over
+                this.worldState.gameOver = true;
+                if (this.onWorldUpdate) {
+                    this.onWorldUpdate({ 
+                        type: NetworkEvents.HUMANS_ESCAPED, 
+                        payload: { message: "All Humans Perished" } 
+                    });
                 }
             }
-        }, 1000);
+        }
+        
+        // Schedule despawn or respawn
+        const despawnDelayTicks = Math.ceil(1000 / (this.ticker.timePerTick || 50));
+        const despawnTick = this.ticker.tick + despawnDelayTicks;
+        console.log(`[CoreGame] Scheduled despawn for ${entityId} at tick ${despawnTick} (current: ${this.ticker.tick})`);
+        this.deadEntities.push({ id: entityId, despawnTick, isPlayer });
     }
 
     stop() {
         this.ticker.stop();
-    }
-
-    
-    /**
-     * Retrieves the current, authoritative state of the game world.
-     * This method is intended to be called by the network layer to get data
-     * for broadcasting to clients.
-     * @returns {object} A snapshot of the game state.
-     */
-    getAuthoritativeState() {
-        // Serialize Entities (Map -> Array) and merge with Combat Stats
-        const entities = [];
-        for (const [id, pos] of this.gridSystem.entities) {
-            const stats = this.combatSystem.getStats(id) || {};
-            entities.push([id, { ...pos, ...stats }]);
-        }
-
-        // Construct the full state object
-        const state = {
-            ...this.worldState,
-            grid: this.gridSystem.grid,
-            gridRevision: this.gridSystem.revision,
-            entities: entities,
-            loot: Array.from(this.lootSystem.worldLoot.entries())
-        };
-
-        return JSON.parse(JSON.stringify(state));
     }
 
     /**
@@ -290,7 +306,7 @@ export class Game {
      */
     removePlayer(playerId) {
         this.gridSystem.removeEntity(playerId);
-        this.combatSystem.stats.delete(playerId);
+        this.combatSystem.removeEntity(playerId);
         console.log(`Player ${playerId} removed.`);
         if (this.onPlayerRemoved) {
             this.onPlayerRemoved(playerId);
@@ -315,48 +331,124 @@ export class Game {
      */
     handlePlayerInput(playerId, input) {
         // This will be the new entry point for all player actions from the server.
-        // It will replace the complex client-side `handleInput`, `executeAction`, `processPlayerInput` etc.
         const { intent } = input;
         if (!intent || !intent.type) return;
 
         let stats = this.combatSystem.getStats(playerId);
-        if (!stats) return;
+        if (!stats || stats.hp <= 0) return;
 
-        if (this.ticker.tick < stats.nextActionTick) {
-            return; // Cooldown not met
+        // Allow inventory management off-cooldown
+        const isInventoryAction = [Intents.EQUIP_ITEM, Intents.UNEQUIP_ITEM, Intents.DROP_ITEM].includes(intent.type);
+
+        if (!isInventoryAction && this.ticker.tick < stats.nextActionTick) {
+            return; // Cooldown not met for non-inventory actions
         }
         
-        const cooldownMs = this.combatSystem.calculateCooldown(playerId, this.config.global.globalCooldownMs || 250);
-        let cooldownTicks = Math.ceil(cooldownMs / this.ticker.timePerTick);
-        stats.nextActionTick = this.ticker.tick + cooldownTicks;
-        
-        // Mark the last processed input tick on the player's state
         stats.lastProcessedInputTick = input.tick;
 
-        if (intent.type === 'MOVE') {
-            stats.currentPath = null; // Interrupt auto-pathing
-            this.processMove(playerId, intent.direction);
-        } else if (intent.type === 'TARGET_ACTION') {
-            const action = this.gridSystem.determineClickIntent(
-                intent.x, intent.y, playerId, this.combatSystem, this.lootSystem, false, intent.shift
-            );
-            
-            if (action) {
-                if (action.type === 'ATTACK_TARGET') {
-                    const result = this.combatSystem.processTargetAction(playerId, action.x, action.y, this.gridSystem, this.lootSystem);
-                    if (result) {
-                        if (result.type === 'PROJECTILE') {
-                            this.spawnProjectile(result.projectile);
-                        } else if (result.type === 'MELEE') {
-                            this.performAttack(playerId, result.targetId);
+        let cooldown = !isInventoryAction;
+
+        switch (intent.type) {
+            case Intents.MOVE:
+                stats.currentPath = null; // Interrupt auto-pathing
+                this.processMove(playerId, intent.direction);
+                break;
+            case Intents.TARGET_ACTION:
+                {
+                    const action = this.gridSystem.determineClickIntent(
+                        intent.x, intent.y, playerId, this.combatSystem, this.lootSystem, false, intent.shift
+                    );
+                    
+                    if (action) {
+                        if (action.type === 'ATTACK_TARGET') {
+                            const result = this.combatSystem.processTargetAction(playerId, action.x, action.y, this.gridSystem, this.lootSystem);
+                            if (result) {
+                                if (result.type === 'RANGED') {
+                                    const pos = this.gridSystem.entities.get(playerId);
+                                    const dx = result.target.x - pos.x;
+                                    const dy = result.target.y - pos.y;
+                                    const proj = this.projectileSystem.createProjectile(playerId, pos.x, pos.y, dx, dy, this.lootSystem);
+                                    if (proj) this.spawnProjectile(proj);
+                                } else if (result.type === 'MELEE') {
+                                    this.performAttack(playerId, result.targetId);
+                                }
+                            }
+                        } else if (action.type === 'MOVE_PATH') {
+                            stats.currentPath = action.path;
+                            cooldown = false; // Pathing doesn't trigger global cooldown itself
                         }
                     }
-                } else if (action.type === 'MOVE_PATH') {
-                    stats.currentPath = action.path;
                 }
-            }
+                break;
+            case Intents.EQUIP_ITEM:
+                if (this.lootSystem.equipItem(playerId, intent.itemId, intent.slot)) {
+                    this.sendInventoryUpdate(playerId);
+                }
+                break;
+            case Intents.UNEQUIP_ITEM:
+                if (this.lootSystem.unequipItem(playerId, intent.slot)) {
+                    this.sendInventoryUpdate(playerId);
+                }
+                break;
+            case Intents.DROP_ITEM:
+                 if (this.lootSystem.performDrop(playerId, intent.itemId, intent.source, this.gridSystem)) {
+                    this.sendInventoryUpdate(playerId);
+                }
+                break;
+            case Intents.INTERACT_LOOT:
+                this.processLootInteraction(playerId, { id: intent.lootId });
+                break;
+            case Intents.USE_ABILITY_SLOT:
+                {
+                    // Slot is 0-indexed, quick slots are 1-indexed
+                    const slotName = `quick${intent.slot + 1}`;
+                    const consumable = this.lootSystem.consumeItem(playerId, slotName);
+                    if (consumable) {
+                        this.combatSystem.applyConsumableEffect(playerId, consumable);
+                        this.sendInventoryUpdate(playerId);
+                    }
+                }
+                break;
+            case Intents.PICKUP:
+                {
+                    const pickupTarget = this.lootSystem.getPickupTarget(playerId, this.gridSystem);
+                    if (pickupTarget) {
+                        if (pickupTarget.type === 'chest') {
+                            this.processLootInteraction(playerId, pickupTarget.target);
+                        } else if (pickupTarget.type === 'items') {
+                            // Pick up all items in the bag
+                            pickupTarget.items.forEach(item => this.processLootInteraction(playerId, item));
+                        }
+                    }
+                }
+                break;
+            case Intents.ABILITY:
+                this.combatSystem.useAbility(playerId, this.ticker.tick, this.ticker.timePerTick);
+                break;
+            case Intents.PRIMARY_ACTION:
+                {
+                    const pickupTarget = this.lootSystem.getPickupTarget(playerId, this.gridSystem);
+                    if (pickupTarget) {
+                        if (pickupTarget.type === 'chest') {
+                            this.processLootInteraction(playerId, pickupTarget.target);
+                        } else if (pickupTarget.type === 'items') {
+                            pickupTarget.items.forEach(item => this.processLootInteraction(playerId, item));
+                        }
+                    } else {
+                        const attack = this.combatSystem.processAttackIntent(playerId, this.gridSystem);
+                        if (attack && attack.type === 'MELEE') {
+                            this.performAttack(playerId, attack.targetId);
+                        }
+                    }
+                }
+                break;
         }
-        // ... other intent types will be handled here
+
+        if (cooldown) {
+            const cooldownMs = this.combatSystem.calculateCooldown(playerId, this.config.global.globalCooldownMs || 250);
+            let cooldownTicks = Math.ceil(cooldownMs / this.ticker.timePerTick);
+            stats.nextActionTick = this.ticker.tick + cooldownTicks;
+        }
     }
 
     processMove(playerId, direction) {
@@ -384,7 +476,15 @@ export class Game {
         if (!result) return;
 
         if (result.type === 'RANGED') {
-            this.spawnProjectile(result.projectile);
+            const attackerPos = this.gridSystem.entities.get(attackerId);
+            const targetPos = this.gridSystem.entities.get(targetId);
+            if (!attackerPos || !targetPos) return;
+
+            const dx = targetPos.x - attackerPos.x;
+            const dy = targetPos.y - attackerPos.y;
+
+            const proj = this.projectileSystem.createProjectile(attackerId, attackerPos.x, attackerPos.y, dx, dy, this.lootSystem);
+            if (proj) this.spawnProjectile(proj);
         } else if (result.type === 'MELEE') {
             this.combatSystem.applyDamage(targetId, result.damage, attackerId, { isCrit: result.isCrit });
             if (this.onWorldUpdate) {
@@ -423,5 +523,50 @@ export class Game {
     handleEscape(entityId) {
         console.log(`Processing escape for ${entityId}`);
         // ... logic from GameLoop
+    }
+
+    getAuthoritativeState() {
+        // Serialize entities
+        const entities = [];
+        for (const [id, pos] of this.gridSystem.entities) {
+            const stats = this.combatSystem.getStats(id);
+            if (stats) {
+                // [0:id, 1:x, 2:y, 3:facingX, 4:facingY, 5:hp, 6:maxHp, 7:type, 8:team, 9:invisible, 10:nextActionTick, 11:lastProcessedInputTick]
+                entities.push([
+                    id, 
+                    pos.x, 
+                    pos.y, 
+                    pos.facing.x, 
+                    pos.facing.y, 
+                    stats.hp, 
+                    stats.maxHp, 
+                    stats.type, 
+                    stats.team, 
+                    stats.invisible ? 1 : 0,
+                    stats.nextActionTick,
+                    stats.lastProcessedInputTick || 0
+                ]);
+            }
+        }
+
+        // Serialize Loot
+        const loot = Array.from(this.lootSystem.worldLoot.entries());
+
+        // Send grid if changed OR periodically (every 100 ticks ~ 5 seconds) to sync new clients
+        const shouldSendGrid = this.gridSystem.revision !== this.lastSentGridRevision || (this.ticker.tick % 100 === 0);
+        
+        if (shouldSendGrid) {
+            this.lastSentGridRevision = this.gridSystem.revision;
+        }
+
+        return {
+            t: Date.now(),
+            gt: this.worldState.gameTime,
+            e: entities,
+            p: this.worldState.projectiles,
+            l: loot,
+            grid: shouldSendGrid ? this.gridSystem.grid : undefined,
+            gridRevision: this.gridSystem.revision
+        };
     }
 }

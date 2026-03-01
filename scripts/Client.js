@@ -5,9 +5,11 @@ import AudioSystem from './AudioSystem.js';
 import UISystem from './UISystem.js';
 import LootSystem from './LootSystem.js';
 import { NetworkEvents } from './NetworkEvents.js';
+import EventEmitter from './EventEmitter.js';
 
-export default class Client {
+export default class Client extends EventEmitter {
     constructor(serverAddress, ticket) {
+        super();
         this.serverAddress = serverAddress;
         this.ticket = ticket;
         this.assetSystem = new AssetSystem();
@@ -77,10 +79,16 @@ export default class Client {
 
         this.ws.onmessage = (event) => {
             const message = JSON.parse(event.data);
+            if (message.type !== NetworkEvents.SNAPSHOT) {
+                console.log(`[Client] Received ${message.type}`, message.payload);
+            }
             if (message.type === NetworkEvents.SNAPSHOT) {
                 this.handleSnapshot(message.payload);
             } else if (message.type === NetworkEvents.INIT_WORLD) {
                 this.myId = message.payload.id;
+                if (message.payload.grid) {
+                    this.worldState.grid = message.payload.grid;
+                }
                 const el = document.getElementById('room-code-display');
                 if (el) el.innerText = "Live";
             } else if (message.type === NetworkEvents.EFFECT) {
@@ -90,6 +98,8 @@ export default class Client {
                 }
             } else if (message.type === NetworkEvents.ENTITY_DEATH) {
                 this.renderSystem.triggerDeath(message.payload.id);
+            } else if (message.type === NetworkEvents.HUMANS_ESCAPED) {
+                this.uiSystem.showHumansEscaped(message.payload.message);
             } else if (message.type === NetworkEvents.UPDATE_INVENTORY) {
                 if (this.lootSystem) {
                     this.lootSystem.inventories.set(this.myId, message.payload.inventory);
@@ -106,6 +116,7 @@ export default class Client {
 
         this.ws.onclose = () => {
             console.log('Disconnected from server');
+            this.emit('disconnected');
         };
 
         this.inputManager.on('intent', (intent) => {
@@ -143,17 +154,33 @@ export default class Client {
 
     handleSnapshot(snapshot) {
         // Update simple properties
-        if (snapshot.gameTime !== undefined) this.worldState.gameTime = snapshot.gameTime;
-        if (snapshot.projectiles) this.worldState.projectiles = snapshot.projectiles;
+        if (snapshot.gt !== undefined) this.worldState.gameTime = snapshot.gt;
+        if (snapshot.p) this.worldState.projectiles = snapshot.p;
         if (snapshot.grid) this.worldState.grid = snapshot.grid;
         if (snapshot.gridRevision !== undefined) this.worldState.gridRevision = snapshot.gridRevision;
 
         // Reconstruct Maps from serialized arrays
-        if (snapshot.entities) {
-            this.worldState.entities = new Map(snapshot.entities);
+        if (snapshot.e) {
+            const map = new Map();
+            for (const e of snapshot.e) {
+                // [0:id, 1:x, 2:y, 3:facingX, 4:facingY, 5:hp, 6:maxHp, 7:type, 8:team, 9:invisible, 10:nextActionTick, 11:lastProcessedInputTick]
+                map.set(e[0], {
+                    x: e[1],
+                    y: e[2],
+                    facing: { x: e[3], y: e[4] },
+                    hp: e[5],
+                    maxHp: e[6],
+                    type: e[7],
+                    team: e[8],
+                    invisible: !!e[9],
+                    nextActionTick: e[10],
+                    lastProcessedInputTick: e[11]
+                });
+            }
+            this.worldState.entities = map;
         }
-        if (snapshot.loot) {
-            this.worldState.loot = new Map(snapshot.loot);
+        if (snapshot.l) {
+            this.worldState.loot = new Map(snapshot.l);
         }
         if (this.lootSystem && this.worldState.loot) this.lootSystem.syncLoot(this.worldState.loot);
     }

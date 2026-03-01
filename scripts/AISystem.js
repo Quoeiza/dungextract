@@ -9,6 +9,7 @@ export default class AISystem {
     update(currentTick, timePerTick, attackCallback) {
         for (const [id, stats] of this.combatSystem.stats) {
             if (stats.isPlayer) continue;
+            if (stats.hp <= 0) continue;
             
             if (currentTick < stats.nextActionTick) continue;
 

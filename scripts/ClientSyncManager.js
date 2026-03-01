@@ -1,4 +1,4 @@
-export default class SyncManager {
+export default class ClientSyncManager {
     constructor(config) {
         this.snapshotBuffer = [];
         // Delay interpolation to ensure we have a "next" frame to lerp to.
@@ -6,109 +6,8 @@ export default class SyncManager {
         this.interpolationDelay = 75;
         this.timeOffset = null; // Server Time - Client Time
         this.reusableEntities = new Map(); // Reuse to reduce GC
-    }
-
-    /**
-     * 1. Heavy Lifting: Serialize all entities ONCE per tick into a cached format.
-     */
-    prepareGlobalSnapshot(gridSystem, combatSystem, projectiles, gameTime) {
-        const entities = [];
-        const entityMap = new Map(); // Optimization: Fast lookup for culling
-        
-        for (const [id, pos] of gridSystem.entities) {
-            const stats = combatSystem.getStats(id);
-            
-            // Pre-calculate the serialized array
-            const data = [
-                id,
-                Math.round(pos.x * 100) / 100, // Faster than toFixed
-                Math.round(pos.y * 100) / 100,
-                pos.facing ? pos.facing.x : 0,
-                pos.facing ? pos.facing.y : 1,
-                stats ? Math.ceil(stats.hp) : 0,
-                stats ? stats.maxHp : 100,
-                stats ? stats.type : 'player',
-                stats ? stats.team : 'player',
-                pos.invisible ? 1 : 0,
-                stats ? stats.nextActionTick : 0,
-                stats ? stats.lastProcessedInputTick : 0
-            ];
-
-            // Store spatial data for culling + the serialized data reference
-            const entityObj = { id, x: pos.x, y: pos.y, data };
-            entities.push(entityObj);
-            entityMap.set(id, entityObj);
-        }
-
-        return {
-            t: Date.now(),
-            entities, // Array of {id, x, y, data}
-            entityMap,
-            projectiles,
-            gt: gameTime
-        };
-    }
-
-    /**
-     * 2. Lightweight: Filter the pre-serialized data for a specific client.
-     */
-    createClientSnapshot(globalSnapshot, recipientId, lootSystem = null) {
-        const VIEW_DIST = 24;
-        let centerX = 0;
-        let centerY = 0;
-
-        // Find recipient's position from the snapshot data (avoiding grid lookup)
-        let recipient = null;
-        if (globalSnapshot.entityMap) {
-            recipient = globalSnapshot.entityMap.get(recipientId);
-        } else {
-            recipient = globalSnapshot.entities.find(e => e.id === recipientId);
-        }
-
-        if (recipient) {
-            centerX = recipient.x;
-            centerY = recipient.y;
-        }
-
-        const visibleEntities = [];
-        
-        for (const entity of globalSnapshot.entities) {
-            // Always include self
-            if (entity.id === recipientId) {
-                visibleEntities.push(entity.data);
-                continue;
-            }
-            
-            // Simple Distance Check
-            const dx = Math.abs(entity.x - centerX);
-            const dy = Math.abs(entity.y - centerY);
-            
-            if (dx <= VIEW_DIST && dy <= VIEW_DIST) {
-                visibleEntities.push(entity.data);
-            }
-        }
-
-        // Filter Projectiles
-        const visibleProjectiles = [];
-        for (const p of globalSnapshot.projectiles) {
-             if (Math.abs(p.x - centerX) <= VIEW_DIST && Math.abs(p.y - centerY) <= VIEW_DIST) {
-                visibleProjectiles.push(p);
-            }
-        }
-
-        const snapshot = {
-            t: globalSnapshot.t,
-            e: visibleEntities,
-            p: visibleProjectiles,
-            gt: globalSnapshot.gt
-        };
-
-        // Full Sync (Loot) is rare, handled here
-        if (lootSystem) {
-            snapshot.l = Array.from(lootSystem.worldLoot.entries());
-        }
-
-        return snapshot;
+        this.grid = null;
+        this.gridRevision = -1;
     }
 
     addSnapshot(snapshot) {
@@ -161,6 +60,11 @@ export default class SyncManager {
         // Edge Case: We are behind the oldest snapshot (Shouldn't happen with correct buffer management)
         if (!prev) {
             return this.convertSnapshotToState(next);
+        }
+        
+        if (next.g) {
+            this.grid = next.g;
+            this.gridRevision = next.gr;
         }
 
         // Calculate Interpolation Ratio
@@ -246,7 +150,9 @@ export default class SyncManager {
             loot: lootMap, 
             projectiles: interpolatedProjectiles, 
             gameTime: next.gt,
-            timestamp: next.t
+            timestamp: next.t,
+            grid: this.grid,
+            gridRevision: this.gridRevision
         };
     }
 
@@ -261,7 +167,9 @@ export default class SyncManager {
             loot: snapshot.l ? new Map(snapshot.l) : null,
             projectiles: snapshot.p || [],
             gameTime: snapshot.gt,
-            timestamp: snapshot.t
+            timestamp: snapshot.t,
+            grid: snapshot.g,
+            gridRevision: snapshot.gr
         };
     }
 

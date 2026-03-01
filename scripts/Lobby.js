@@ -1,4 +1,5 @@
 import { playFabManager } from './PlayFabManager.js';
+import { getEl } from './domUtils.js';
 
 export class Lobby {
     constructor(uiLayer, playerData, onEnterDungeon, uiSystem) {
@@ -6,8 +7,8 @@ export class Lobby {
         this.playerData = playerData;
         this.onEnterDungeon = onEnterDungeon;
         this.uiSystem = uiSystem;
-        this.loginContainer = document.getElementById('login-container');
-        this.lobbyContainer = document.getElementById('lobby-container');
+        this.loginContainer = getEl('login-container');
+        this.lobbyContainer = getEl('lobby-container');
         this.loggedIn = false;
 
         this.setupEventListeners();
@@ -52,7 +53,7 @@ export class Lobby {
             </div>
         `;
 
-        const bgVideo = document.getElementById('lobby-bg-video');
+        const bgVideo = getEl('lobby-bg-video');
         if (bgVideo) {
             bgVideo.muted = true;
             bgVideo.play().catch(e => console.warn("Lobby video autoplay failed:", e));
@@ -60,7 +61,7 @@ export class Lobby {
     }
 
     renderLoginForm() {
-        const menuArea = document.getElementById('lobby-menu-area');
+        const menuArea = getEl('lobby-menu-area');
         if (!menuArea) return;
 
         menuArea.innerHTML = `
@@ -83,9 +84,9 @@ export class Lobby {
             </div>
         `;
 
-        document.getElementById('btn-login').onclick = () => {
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
+        getEl('btn-login').onclick = () => {
+            const email = getEl('login-email').value;
+            const password = getEl('login-password').value;
             if (email && password) {
                 playFabManager.login(email, password);
             } else {
@@ -93,9 +94,9 @@ export class Lobby {
             }
         };
 
-        document.getElementById('btn-create-account').onclick = () => {
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
+        getEl('btn-create-account').onclick = () => {
+            const email = getEl('login-email').value;
+            const password = getEl('login-password').value;
             if (email && password) {
                 playFabManager.register(email, password);
             } else {
@@ -103,8 +104,8 @@ export class Lobby {
             }
         };
 
-        document.getElementById('btn-forgot-password').onclick = () => {
-            const email = document.getElementById('login-email').value;
+        getEl('btn-forgot-password').onclick = () => {
+            const email = getEl('login-email').value;
             if (email) {
                 playFabManager.forgotPassword(email);
             } else {
@@ -114,7 +115,7 @@ export class Lobby {
     }
 
     renderMainMenu() {
-        const menuArea = document.getElementById('lobby-menu-area');
+        const menuArea = getEl('lobby-menu-area');
         if (!menuArea) return;
 
         menuArea.innerHTML = `
@@ -133,29 +134,29 @@ export class Lobby {
             <button id="btn-quit-game">Quit Game</button>
         `;
 
-        document.getElementById('btn-enter-dungeon').onclick = () => {
-            const name = document.getElementById('player-name').value;
-            const playerClass = document.getElementById('class-select').value;
+        getEl('btn-enter-dungeon').onclick = () => {
+            const name = getEl('player-name').value;
+            const playerClass = getEl('class-select').value;
             if (this.onEnterDungeon) this.onEnterDungeon(name, playerClass);
         };
 
-        document.getElementById('btn-debug-local').onclick = () => {
-            const name = document.getElementById('player-name').value;
-            const playerClass = document.getElementById('class-select').value;
+        getEl('btn-debug-local').onclick = () => {
+            const name = getEl('player-name').value;
+            const playerClass = getEl('class-select').value;
             if (this.onEnterDungeon) this.onEnterDungeon(name, playerClass, true); // true = isLocal
         };
 
-        document.getElementById('btn-lobby-settings').onclick = () => {
+        getEl('btn-lobby-settings').onclick = () => {
             if (this.uiSystem && typeof this.uiSystem.toggleSettingsMenu === 'function') {
                 this.uiSystem.toggleSettingsMenu();
             }
         };
 
-        document.getElementById('btn-logout').onclick = () => {
+        getEl('btn-logout').onclick = () => {
             this.logout();
         };
 
-        document.getElementById('btn-quit-game').onclick = () => {
+        getEl('btn-quit-game').onclick = () => {
             window.open('', '_self', '');
             window.close();
             setTimeout(() => window.location.href = "about:blank", 100);
@@ -176,8 +177,8 @@ export class Lobby {
     onRegisterSuccess(data) {
         console.log("Registration successful:", data);
         // Automatically log the user in after registration
-        const email = document.getElementById('login-email').value;
-        const password = document.getElementById('login-password').value;
+        const email = getEl('login-email').value;
+        const password = getEl('login-password').value;
         playFabManager.login(email, password);
     }
 
@@ -200,7 +201,7 @@ export class Lobby {
     }
 
     showError(message, color = '#ff6b6b') {
-        const errorElement = document.getElementById('login-error');
+        const errorElement = getEl('login-error');
         if (errorElement) {
             errorElement.textContent = message;
             errorElement.style.color = color;
